@@ -18,9 +18,9 @@ jobs:
           fetch-depth: 0
 
       - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            detect --source=/repo --redact --verbose --exit-code=1
 
       - name: Verify the Company Brain has not drifted from the delivered bundle
         run: diff assets/company_brain/screening_policy.md company_brain/versions/v1/screening_policy.md
