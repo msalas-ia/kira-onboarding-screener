@@ -1,0 +1,81 @@
+# Machine-readable projection of screening_policy.md, which stays byte-identical
+# to the delivered bundle. The two are kept in sync by tests/test_policy_sync.py.
+# Every policy value lives here; no decision value is computed in Python. (D-002)
+
+policy_version: v1
+
+settings:
+  min_name_score: 0.75
+  as_of_date: "2026-07-27"        # fixed, never the wall clock (D-006)
+  formation_recent_days: 90
+
+  # A certificate of incorporation is a document; a UBO list is a populated
+  # ubos[] array, not a document. (D-004)
+  required_documents:
+    - id: certificate_of_incorporation
+      satisfied_by: has_incorporation_doc
+    - id: ubo_list
+      satisfied_by: has_ubo_list
+
+rules:
+  - id: 1
+    scope: each_hit
+    when: {hit_type: sanctions, corroborated: true}
+    decision: BLOCK
+    confidence: 0.95
+    cite: "sanctions hit, corroborated"
+    evidence: [entry_id, name_score, corroboration_basis]
+
+  - id: 2
+    scope: each_hit
+    when: {hit_type: sanctions, corroborated: false}
+    decision: REVIEW
+    confidence: 0.80
+    cite: "sanctions hit, unconfirmed — never CLEAR"
+    evidence: [entry_id, name_score, corroboration_basis]
+
+  - id: 3
+    scope: each_hit
+    when: {hit_type: pep}
+    decision: REVIEW
+    confidence: 0.85
+    cite: "PEP name match"
+    evidence: [entry_id, name_score]
+
+  - id: 4
+    scope: each_hit
+    when: {hit_type: adverse_media}
+    decision: REVIEW
+    confidence: 0.85
+    cite: "adverse-media name match"
+    evidence: [entry_id, name_score]
+
+  - id: 5
+    when: {mcc: {in: ["6050", "6051"]}}
+    decision: REVIEW
+    confidence: 0.90
+    cite: "high-risk activity (money services / crypto)"
+    evidence: [mcc]
+
+  - id: 6
+    when: {missing_docs_count: {gte: 1}}
+    decision: REVIEW
+    confidence: 0.90
+    cite: "missing required documents"
+    evidence: [missing_docs]
+
+  - id: 7
+    when: {shell_signal_count: {gte: 2}}
+    decision: REVIEW
+    confidence: 0.85
+    cite: "shell-company signals"
+    evidence: [shell_signals]
+
+  # Rule 9 of the prose has no entry: it is unreachable under severity
+  # aggregation, and an entry would read as an escape hatch from Rule 2. (D-005)
+
+  - id: 8
+    when: {}
+    decision: CLEAR
+    confidence: 0.90
+    cite: "no rule triggered"

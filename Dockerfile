@@ -25,6 +25,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1
 
 COPY --from=builder --chown=kira:kira /app/.venv /app/.venv
+COPY --chown=kira:kira agent/ ./agent/
 COPY --chown=kira:kira api/ ./api/
 
 # company_brain/ is deliberately NOT copied. It is mounted at runtime so a
