@@ -1,0 +1,22 @@
+# Environment / secrets — never commit a real one
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Runtime output
+traces/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

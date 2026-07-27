@@ -1,0 +1,135 @@
+[
+  {
+    "entry_id": "OFAC-1001",
+    "type": "sanctions",
+    "program": "OFAC SDN",
+    "name": "Viktor Petrov",
+    "aliases": [
+      "Viktor Petroff",
+      "V. Petrov"
+    ],
+    "dob": "1968-03-12",
+    "country": "RU"
+  },
+  {
+    "entry_id": "OFAC-1002",
+    "type": "sanctions",
+    "program": "OFAC SDN",
+    "name": "Grupo Delta Naviera S.A.",
+    "aliases": [
+      "Delta Naviera",
+      "Grupo Delta"
+    ],
+    "dob": null,
+    "country": "PA"
+  },
+  {
+    "entry_id": "OFAC-1003",
+    "type": "sanctions",
+    "program": "OFAC SDN",
+    "name": "Muhammad Al-Rashid",
+    "aliases": [
+      "Mohammed Alrashid",
+      "Muhammed Al Rashid"
+    ],
+    "dob": "1975-11-02",
+    "country": "SY"
+  },
+  {
+    "entry_id": "EU-2001",
+    "type": "sanctions",
+    "program": "EU Consolidated",
+    "name": "Ivanka Sokolova",
+    "aliases": [],
+    "dob": "1980-06-21",
+    "country": "BY"
+  },
+  {
+    "entry_id": "PEP-3001",
+    "type": "pep",
+    "program": "PEP - Senior Gov",
+    "name": "Carlos Mendoza Rivas",
+    "aliases": [
+      "Carlos M. Rivas"
+    ],
+    "dob": "1962-01-30",
+    "country": "MX"
+  },
+  {
+    "entry_id": "PEP-3002",
+    "type": "pep",
+    "program": "PEP - Family",
+    "name": "Adaeze Okafor",
+    "aliases": [
+      "Ada Okafor"
+    ],
+    "dob": "1985-09-14",
+    "country": "NG"
+  },
+  {
+    "entry_id": "PEP-3003",
+    "type": "pep",
+    "program": "PEP - State Enterprise",
+    "name": "Liang Wei",
+    "aliases": [
+      "Wei Liang"
+    ],
+    "dob": "1971-04-08",
+    "country": "CN"
+  },
+  {
+    "entry_id": "AM-4001",
+    "type": "adverse_media",
+    "program": "Adverse Media - Fraud",
+    "name": "Northgate Capital Partners",
+    "aliases": [
+      "Northgate Capital"
+    ],
+    "dob": null,
+    "country": "US"
+  },
+  {
+    "entry_id": "AM-4002",
+    "type": "adverse_media",
+    "program": "Adverse Media - AML",
+    "name": "Sergio Beltran",
+    "aliases": [
+      "Sergio Beltrán"
+    ],
+    "dob": "1979-12-01",
+    "country": "CO"
+  },
+  {
+    "entry_id": "AM-4003",
+    "type": "adverse_media",
+    "program": "Adverse Media - Fraud",
+    "name": "Blue Harbor Trading LLC",
+    "aliases": [
+      "Blue Harbour Trading"
+    ],
+    "dob": null,
+    "country": "US"
+  },
+  {
+    "entry_id": "OFAC-1004",
+    "type": "sanctions",
+    "program": "OFAC SDN",
+    "name": "Zephyr Logistics FZE",
+    "aliases": [
+      "Zephyr Logistics"
+    ],
+    "dob": null,
+    "country": "AE"
+  },
+  {
+    "entry_id": "PEP-3004",
+    "type": "pep",
+    "program": "PEP - Senior Gov",
+    "name": "Olena Kravchenko",
+    "aliases": [
+      "Elena Kravchenko"
+    ],
+    "dob": "1969-07-19",
+    "country": "UA"
+  }
+]
