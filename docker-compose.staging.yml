@@ -9,6 +9,9 @@ services:
     container_name: kira-staging
     restart: unless-stopped
     env_file: .env.staging
+    # Non-root, plus the host's group, so the one file the service writes — the
+    # Brain pointer — is writable on a bind-mounted volume.
+    user: "10001:${HOST_GID:-1000}"
     environment:
       APP_ENV: staging
       GIT_COMMIT: ${GIT_COMMIT:-unknown}
@@ -18,8 +21,9 @@ services:
     volumes:
       # Mounted, not baked in: this is what allows a Brain version swap without
       # a rebuild, and lets this environment run a candidate policy while
-      # production stays on the pinned one.
-      - ./company_brain:/app/company_brain:ro
+      # production stays on the pinned one. Writable because POST /brain/activate
+      # rewrites active_version.json in place — the app writes nothing else here.
+      - ./company_brain:/app/company_brain:rw
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s

@@ -67,10 +67,24 @@ empirically rather than assuming it.
 
 ## The Company Brain
 
-The policy is a versioned artifact under `company_brain/versions/`, with
-`active_version.json` naming the live one. It is **mounted into the container,
-not copied into the image**, which is what makes three separate requirements fall
-out of a single mechanism:
+A Brain version is a **directory**, not a file. `company_brain/versions/vN/` holds
+the authoritative prose — byte-identical to the delivered bundle, which CI checks
+— and `rules.yaml`, its machine-readable projection: the decision matrix, the MCC
+set, the thresholds, the required-document set, the evaluation date, and the
+confidence attached to each outcome. The two are hashed together as `brain_hash`,
+reported by `/health` and echoed in every verdict, so a stored decision can be
+traced back to the exact policy state that produced it. `active_version.json`
+names the live version and the one before it.
+
+The rule table is executed by a generic evaluator that knows five operators and
+nothing about compliance. It cannot produce a decision that is not in the table,
+and a rule naming a fact the vocabulary does not declare fails to load rather than
+silently evaluating false. A policy that will not execute never becomes active:
+`POST /brain/activate` validates the target before the pointer moves, and
+`/health` reports 503 if what is already active stops validating.
+
+The Brain is **mounted into the container, not copied into the image**, which is
+what makes three separate requirements fall out of a single mechanism:
 
 - a version can be swapped without a rebuild or restart, and rollback is just a
   second swap;
@@ -79,7 +93,17 @@ out of a single mechanism:
 - the pointer is read fresh per request, so no cached value can outlive a swap.
 
 Adding a rule that references an existing fact is a data change — one entry in
-the Brain's rule table, no code touched.
+the Brain's rule table, no code touched. Rolling back is the same call with the
+version the API just reported. The pointer is the only file the service writes,
+which is why the container runs non-root but with the host's group: it needs
+write access to exactly one file and nothing else.
+
+The pointer is also a committed file, so the repository is the declared active
+version and a deploy re-asserts it. A hot-swap survives a container restart but
+not a redeploy — it is an operational override, not a change of intent. The
+alternative, moving the pointer outside the checkout, buys swap durability at the
+cost of new policy versions no longer arriving with a deploy, which is the worse
+trade when the live task is adding a rule.
 
 ## Guardrails
 
@@ -94,7 +118,9 @@ the Brain's rule table, no code touched.
 
 | | Handling |
 |---|---|
-| Brain volume missing or pointer malformed | `/health` returns 503; the instance is not ready and receives no screening traffic |
+| Brain volume missing, pointer malformed, or rule table invalid | `/health` returns 503; the instance is not ready and receives no screening traffic. No fallback to a previous version — an instance that cannot execute its policy stops rather than guessing |
+| Policy edit that references a fact nobody produces | Rejected at activation with 422 and the validation errors; the pointer does not move |
+| The Brain's pinned `as_of_date` goes stale | Harmless within this challenge — verified decision-neutral across all 18 applicants — but a real deployment needs a policy-review cadence. The date is visible in `GET /brain` rather than buried in code |
 | Model unavailable or rate limited | *Not yet implemented* |
 | Runaway tool-call loop | Step and time budget per applicant; `MAX_STEPS_PER_APPLICANT` and `REQUEST_TIMEOUT_SECONDS` are wired into configuration |
 | Ambiguous policy text | Resolved explicitly in `DECISIONS.md` and surfaced in the trace, so a human can see which reading produced the verdict |

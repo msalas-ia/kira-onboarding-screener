@@ -3,7 +3,8 @@
 > **Status**: Draft
 > **Owner**: repo bootstrap, before any functional code
 > **Constitutional context**: D-001 (hybrid architecture — precedes every spec)
-> **Decisions owned by this spec**: D-002, D-003, D-004, D-005
+> **Decisions owned by this spec**: none. Nothing in a scaffold is forced; the
+> choices below are free ones and their rationale lives here and in `DESIGN.md`.
 
 ## 1. Goal
 
@@ -33,7 +34,7 @@ and the CI eval-gate (005). `/screen` is *not* implemented here — only `/healt
 | Dependencies | `uv` + `pyproject.toml` + committed `uv.lock` | Reproducible builds — the same discipline the decision path demands (D-001) |
 | API framework | FastAPI + Uvicorn | Minimal surface for `/health`, `/screen`, `/brain/activate` |
 | Validation | Pydantic v2 + `pydantic-settings` | Schemas double as the extraction contract in spec 002 |
-| LLM client | `anthropic` (official SDK) | D-002 |
+| LLM client | `anthropic` (official SDK) | Official provider SDK, no agent framework — see `DESIGN.md` |
 | Brain parsing | `PyYAML` | Structured rule block inside `screening_policy.md` (spec 001) |
 | HTTP client | `httpx` | Geolocation tool in the live call task |
 | Tests | `pytest` | Fast, no-network unit layer |
@@ -43,7 +44,8 @@ Runtime dependencies stay at the list above. Anything else needs a decision entr
 ### Model configuration
 
 `ANTHROPIC_MODEL` defaults to `claude-opus-5` and is identical in every
-environment (D-003). Three API constraints that later specs must respect and that
+environment: an eval gate that graded a model production never runs would be
+decorative. Three API constraints that later specs must respect and that
 are recorded here so they are not rediscovered:
 
 - `temperature`, `top_p`, `top_k` are rejected with HTTP 400 on current models.
@@ -86,7 +88,7 @@ holds our working copy; the two are compared in CI so drift is visible.
 
 ## 5. Branching and commits
 
-Single long-lived branch `main` (D-004). One branch per spec, named
+Single long-lived branch `main`. One branch per spec, named
 `spec/00X-<short-name>`, merged with `--no-ff` so the history shows deliberate
 units of work rather than a flat sequence.
 
@@ -95,7 +97,7 @@ configuration in §6. A branch whose code could reach production without passing
 through the same eval gate as staging would defeat the purpose of the gate.
 
 Non-trivial commits reference the decision they implement, e.g.
-`feat(rules): generic condition evaluator over facts bag (D-007)`.
+`feat(rules): generic condition evaluator over facts bag (D-001)`.
 
 ### Remote and protection
 
@@ -128,10 +130,10 @@ configuration:
 | Public URL | `kira-staging.adaptateia.com` | `kira.adaptateia.com` |
 | Brain version | free to point at a candidate version | pinned |
 | `LOG_LEVEL` | `DEBUG` | `INFO` |
-| Model | identical (D-003) | identical (D-003) |
+| Model | identical | identical |
 
 Both bind to loopback only and are exposed through Cloudflare Tunnel with no
-inbound ports open (D-005). This matches the convention already used on the host
+inbound ports open. This matches the convention already used on the host
 by `backend` (8000), `n8n` (5678), and `creskai-frontend` (8090). Ports 8080 and
 8081 were verified free.
 

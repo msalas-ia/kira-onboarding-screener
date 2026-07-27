@@ -9,6 +9,9 @@ services:
     container_name: kira-prod
     restart: unless-stopped
     env_file: .env.production
+    # Non-root, plus the host's group, so the one file the service writes — the
+    # Brain pointer — is writable on a bind-mounted volume.
+    user: "10001:${HOST_GID:-1000}"
     environment:
       APP_ENV: production
       GIT_COMMIT: ${GIT_COMMIT:-unknown}
@@ -16,7 +19,9 @@ services:
       # Loopback only; Cloudflare Tunnel provides ingress.
       - "127.0.0.1:8080:8000"
     volumes:
-      - ./company_brain:/app/company_brain:ro
+      # Writable: POST /brain/activate rewrites active_version.json in place, and
+      # that is the hot-swap. The app writes nothing else here.
+      - ./company_brain:/app/company_brain:rw
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
