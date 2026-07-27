@@ -94,7 +94,16 @@ what makes three separate requirements fall out of a single mechanism:
 
 Adding a rule that references an existing fact is a data change — one entry in
 the Brain's rule table, no code touched. Rolling back is the same call with the
-version the API just reported. The pointer is the only file the service writes.
+version the API just reported. The pointer is the only file the service writes,
+which is why the container runs non-root but with the host's group: it needs
+write access to exactly one file and nothing else.
+
+The pointer is also a committed file, so the repository is the declared active
+version and a deploy re-asserts it. A hot-swap survives a container restart but
+not a redeploy — it is an operational override, not a change of intent. The
+alternative, moving the pointer outside the checkout, buys swap durability at the
+cost of new policy versions no longer arriving with a deploy, which is the worse
+trade when the live task is adding a rule.
 
 ## Guardrails
 

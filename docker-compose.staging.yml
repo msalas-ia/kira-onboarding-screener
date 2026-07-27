@@ -9,6 +9,9 @@ services:
     container_name: kira-staging
     restart: unless-stopped
     env_file: .env.staging
+    # Non-root, plus the host's group, so the one file the service writes — the
+    # Brain pointer — is writable on a bind-mounted volume.
+    user: "10001:${HOST_GID:-1000}"
     environment:
       APP_ENV: staging
       GIT_COMMIT: ${GIT_COMMIT:-unknown}

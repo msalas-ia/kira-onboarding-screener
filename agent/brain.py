@@ -34,6 +34,10 @@ class BrainInvalid(BrainUnavailable):
         super().__init__(f"Brain version {version!r} is invalid: " + "; ".join(errors))
 
 
+class BrainReadOnly(BrainUnavailable):
+    """The volume cannot be written, so no swap can be recorded."""
+
+
 _CACHE: dict[str, Brain] = {}
 
 
@@ -229,7 +233,11 @@ def activate(brain_dir: Path, version: str) -> tuple[str | None, Brain]:
 
     pointer = brain_dir / POINTER_FILE
     temporary = pointer.with_name(POINTER_FILE + ".tmp")
-    temporary.write_text(payload, encoding="utf-8")
-    os.replace(temporary, pointer)
+    try:
+        temporary.write_text(payload, encoding="utf-8")
+        os.replace(temporary, pointer)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise BrainReadOnly(f"cannot record the swap in {pointer}: {exc}") from exc
 
     return previous, brain

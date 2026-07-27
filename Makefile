@@ -30,7 +30,8 @@ test:
 	uv run pytest
 
 up:
-	GIT_COMMIT=$$(git rev-parse --short HEAD) docker compose -f $(STAGING_COMPOSE) up --build
+	GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
+	  docker compose -f $(STAGING_COMPOSE) up --build
 
 down:
 	docker compose -f $(STAGING_COMPOSE) down
@@ -44,7 +45,7 @@ endif
 	  cd $(STAGING_DIR); \
 	  git fetch --all --prune; \
 	  git checkout --detach origin/$(REF) 2>/dev/null || git checkout --detach $(REF); \
-	  GIT_COMMIT=$$(git rev-parse --short HEAD) \
+	  GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
 	    docker compose -f $(STAGING_COMPOSE) up -d --build; \
 	  echo "staging now at $$(git rev-parse --short HEAD)"'
 
@@ -55,6 +56,6 @@ deploy-prod:
 	  cd $(PROD_DIR); \
 	  git fetch --all --prune; \
 	  git checkout --detach origin/main; \
-	  GIT_COMMIT=$$(git rev-parse --short HEAD) \
+	  GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
 	    docker compose -f $(PROD_COMPOSE) up -d --build; \
 	  echo "production now at $$(git rev-parse --short HEAD)"'

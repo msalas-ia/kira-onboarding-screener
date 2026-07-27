@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -105,6 +106,19 @@ def test_an_unconfigured_token_closes_the_endpoint_rather_than_opening_it(client
     response = client.post("/brain/activate", json={"version": "v1"}, headers=AUTH_HEADER)
 
     assert response.status_code == 503
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores the permission bits this test relies on")
+def test_a_volume_that_cannot_be_written_says_so(client):
+    """A read-only or wrongly-owned mount is an operational fault, and must not surface as a mute 500."""
+    settings.brain_dir.chmod(0o555)
+    try:
+        response = client.post("/brain/activate", json={"version": "v1"}, headers=AUTH_HEADER)
+    finally:
+        settings.brain_dir.chmod(0o755)
+
+    assert response.status_code == 503
+    assert "cannot record the swap" in response.json()["detail"]
 
 
 def test_versions_lists_the_broken_ones_with_their_errors(client, v1_document):

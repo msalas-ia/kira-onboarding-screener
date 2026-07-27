@@ -7,7 +7,15 @@ import secrets
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from agent.brain import BrainInvalid, BrainUnavailable, activate, list_versions, load_brain, read_pointer
+from agent.brain import (
+    BrainInvalid,
+    BrainReadOnly,
+    BrainUnavailable,
+    activate,
+    list_versions,
+    load_brain,
+    read_pointer,
+)
 from api.config import settings
 
 log = logging.getLogger(__name__)
@@ -68,6 +76,8 @@ def activate_version(request: ActivateRequest, caller: str = Depends(require_adm
         previous, brain = activate(settings.brain_dir, request.version)
     except BrainInvalid as exc:
         raise HTTPException(status_code=422, detail={"version": exc.version, "errors": exc.errors}) from exc
+    except BrainReadOnly as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except BrainUnavailable as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
