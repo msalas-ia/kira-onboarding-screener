@@ -1,0 +1,28 @@
+name: kira-staging
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kira-screener:staging
+    container_name: kira-staging
+    restart: unless-stopped
+    env_file: .env.staging
+    environment:
+      APP_ENV: staging
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    ports:
+      # Loopback only; Cloudflare Tunnel provides ingress.
+      - "127.0.0.1:8081:8000"
+    volumes:
+      # Mounted, not baked in: this is what allows a Brain version swap without
+      # a rebuild, and lets this environment run a candidate policy while
+      # production stays on the pinned one.
+      - ./company_brain:/app/company_brain:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,25 @@
+name: kira-prod
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kira-screener:prod
+    container_name: kira-prod
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      APP_ENV: production
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    ports:
+      # Loopback only; Cloudflare Tunnel provides ingress.
+      - "127.0.0.1:8080:8000"
+    volumes:
+      - ./company_brain:/app/company_brain:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
