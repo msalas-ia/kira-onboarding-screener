@@ -1,0 +1,155 @@
+# Design
+
+Current state of the system and the reasoning behind it. Sections are rewritten
+in place as the architecture changes — this is a snapshot, not a log. Judgment
+calls forced by ambiguity in the brief are recorded separately in `DECISIONS.md`.
+
+## Pipeline
+
+One applicant packet in, one case file out.
+
+```
+packet
+  │
+  ├─▶ load Company Brain          active_version.json → policy + rule table
+  │
+  ├─▶ extract                     documents[] → facts        (LLM)
+  │                               doc types, shell signals, name variants
+  │
+  ├─▶ screen                      business + every UBO       (deterministic)
+  │                               + supplementary names from extraction
+  │
+  ├─▶ corroborate                 DOB / country per hit      (deterministic)
+  │
+  ├─▶ adjudicate                  LLM proposes ─┐
+  │                               Brain rules ──┴─▶ decision (deterministic)
+  │
+  └─▶ case file                   decision, confidence, reasons[],
+                                  matched_entities[], missing_docs[],
+                                  policy_version
+```
+
+Every step emits a trace event. The adjudication step records both the model's
+proposal and the Brain's verdict, so an override is visible on every run rather
+than only in a special demonstration mode.
+
+## Where the LLM is, and where it is not
+
+The brief demands the agent be **agentic** — real tool calls and control flow —
+and **deterministic**: identical decision and reasons on every run, with a
+false-clear rate of zero. Those pull against each other, so responsibilities are
+split by which side is actually good at the job.
+
+| Step | Owner | Why |
+|---|---|---|
+| Extraction | LLM | Free text. Document `type` strings are inconsistent across applicants and need semantic normalisation, and this is where the embedded prompt injection must be resisted. |
+| Screening | Deterministic sweep, plus supplementary searches the LLM proposes for names it finds in documents | Coverage is a security invariant, not a judgment call. The model can only *add* searches, never remove one. |
+| Corroboration | Deterministic | The policy defines it as a field comparison (DOB, country/nationality). Implementing a comparison the policy already specifies is not hardcoding. |
+| Adjudication | LLM proposes, Brain rules decide | The proposal is what makes the override observable. |
+| `decision`, `reasons[]`, `confidence` | Deterministic | The policy requires identical *reasons*, not just identical decisions. |
+
+## Determinism
+
+Determinism is structural, not statistical. Nothing that must be reproducible
+passes through a sampling step: the verdict is computed by a rules engine over
+deterministic facts, and `reasons[]` is templated from the rules that fired and
+the watchlist entries they cite.
+
+This matters more than it used to. `temperature`, `top_p` and `top_k` are
+rejected with HTTP 400 on current models, so the traditional lever no longer
+exists — and hosted inference was never bit-for-bit reproducible anyway. A design
+that depended on sampling control would have no way to deliver what the brief
+asks for.
+
+The LLM still touches extraction, so its output is schema-constrained rather than
+free-form, and repeated-run hashing in the eval suite verifies stability
+empirically rather than assuming it.
+
+## The Company Brain
+
+The policy is a versioned artifact under `company_brain/versions/`, with
+`active_version.json` naming the live one. It is **mounted into the container,
+not copied into the image**, which is what makes three separate requirements fall
+out of a single mechanism:
+
+- a version can be swapped without a rebuild or restart, and rollback is just a
+  second swap;
+- staging and production can run the same commit against different policy
+  versions, which is what config-separated environments means here;
+- the pointer is read fresh per request, so no cached value can outlive a swap.
+
+Adding a rule that references an existing fact is a data change — one entry in
+the Brain's rule table, no code touched.
+
+## Guardrails
+
+| | |
+|---|---|
+| Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly. |
+| `REVIEW` / `BLOCK` route to a human | Terminal states are flagged for a compliance officer and never auto-action anything downstream. |
+| No PII in logs | Traces reference applicants and entities by ID. Names, dates of birth and identifiers are redacted before anything is written to log storage; the full case file exists only in the response to an authenticated caller. |
+| Documents are data, never instructions | Free text is delimited and framed as untrusted input. Screening runs unconditionally regardless of document content, so no document can suppress it — the injection in APP-009 cannot reach the decision path even if the extraction step were fooled. |
+
+## Failure modes
+
+| | Handling |
+|---|---|
+| Brain volume missing or pointer malformed | `/health` returns 503; the instance is not ready and receives no screening traffic |
+| Model unavailable or rate limited | *Not yet implemented* |
+| Runaway tool-call loop | Step and time budget per applicant; `MAX_STEPS_PER_APPLICANT` and `REQUEST_TIMEOUT_SECONDS` are wired into configuration |
+| Ambiguous policy text | Resolved explicitly in `DECISIONS.md` and surfaced in the trace, so a human can see which reading produced the verdict |
+
+## Stack
+
+Choices made freely — the brief would be satisfied either way. Recorded here
+rather than in `DECISIONS.md` for exactly that reason.
+
+| | Choice | Why |
+|---|---|---|
+| Language | Python 3.12 | Stable wheel coverage; nothing needs 3.13+ |
+| Dependencies | uv with a committed `uv.lock` | Reproducible builds, fast Docker layers |
+| API | FastAPI + Uvicorn | Small surface for `/health`, `/screen`, `/brain/activate` |
+| Validation | Pydantic v2 | The schemas double as the extraction contract |
+| LLM | `anthropic` SDK, `claude-opus-5` | Official SDK; the model is identical in every environment |
+
+### Why no agent framework
+
+I have prior LangChain and Strands experience, so *not* using a framework is a
+deliberate choice rather than a default.
+
+The pipeline is a bounded three-stage flow with no multi-agent delegation and no
+persistent session state — the problems LangGraph and Google ADK solve are not
+present here. The rubric rewards correctness per unit of complexity, and the live
+task means the control flow has to be explainable and modifiable under time
+pressure: plain Python is legible line by line, whereas a framework I have never
+used would be a liability in exactly that moment.
+
+The cost is that retries, timeouts and loop guards are written explicitly rather
+than inherited. That is a small, bounded amount of code whose behaviour I can
+state precisely.
+
+## Environments and deployment
+
+Staging and production run the same image from the same commit, differing only in
+env file, bind port, hostname, log level, and active Brain version.
+
+| | staging | production |
+|---|---|---|
+| Bind | `127.0.0.1:8081` | `127.0.0.1:8080` |
+| Host | kira-staging.adaptateia.com | kira.adaptateia.com |
+| Brain | free to run a candidate version | pinned |
+
+Both bind to loopback and are exposed through Cloudflare Tunnel, so no inbound
+ports are opened. Deployment is an explicit `make` target, never a side effect of
+pushing: `deploy-staging` takes any ref, `deploy-prod` accepts only `main`.
+
+Keeping code identical across environments is what lets the CI eval gate mean
+something. A gate that validated a configuration production never runs would be
+decorative.
+
+## Cost and latency
+
+Not yet measured. Prompt caching should apply to the Brain and the system prompt
+— `claude-opus-5` has a 512-token minimum cacheable prefix and the policy is
+comfortably above it — but this will be verified against
+`usage.cache_read_input_tokens` before it is claimed anywhere.
