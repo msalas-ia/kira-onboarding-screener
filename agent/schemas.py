@@ -182,6 +182,7 @@ class ExtractionResult(BaseModel):
     screening_targets: list[ScreeningTarget] = Field(default_factory=list)
     injection_suspected: bool = False
     dropped_targets: int = 0
+    retries: int = 0
     usage: Usage | None = None
 
 
@@ -240,3 +241,71 @@ class Verdict(BaseModel):
     policy_version: str
     fired_rules: list[int]
     brain_hash: str
+
+
+class CaseFile(BaseModel):
+    """The policy's output contract, plus the hashes that tie a stored decision to the state that produced it."""
+
+    applicant_id: str
+    decision: Decision
+    confidence: float
+    reasons: list[str]
+    matched_entities: list[MatchedEntity]
+    missing_docs: list[str]
+    policy_version: str
+    brain_hash: str
+    watchlist_hash: str
+    run_id: str
+    # Stated rather than left for a caller to infer: REVIEW and BLOCK route to a human.
+    requires_human_review: bool
+
+
+class ExtractTrace(BaseModel):
+    """The one model call on the fact path, described by shape rather than by content."""
+
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    retries: int
+    document_kinds: dict[int, DocumentKind]
+    shell_signals: list[str]
+    target_refs: list[str]
+    supplementary_targets: int
+    dropped_targets: int
+    injection_suspected: bool
+
+
+class ScreenTrace(BaseModel):
+    """The deterministic sweep. `Hit` already references subjects by index, so it can be quoted whole."""
+
+    duration_ms: int
+    searches: int
+    hits: list[Hit]
+
+
+class EvaluateTrace(BaseModel):
+    """One pass of the rules engine; recorded once before the proposal can add hits and once after."""
+
+    phase: Literal["initial", "final"]
+    duration_ms: int
+    decision: Decision
+    confidence: float
+    fired_rules: list[int]
+
+
+class RunTrace(BaseModel):
+    """One run, with no field that can hold a name, a date of birth, an address or a quoted span. (D-012)"""
+
+    run_id: str
+    applicant_id: str
+    policy_version: str
+    brain_hash: str
+    watchlist_hash: str
+    model: str
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    extract: ExtractTrace
+    screen: ScreenTrace
+    evaluate: list[EvaluateTrace]
+    guardrails_passed: list[str]

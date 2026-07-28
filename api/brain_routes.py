@@ -1,10 +1,8 @@
 """Admin surface for the Company Brain: inspect, list, and swap the active version."""
 
-import hashlib
 import logging
-import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from agent.brain import (
@@ -16,6 +14,7 @@ from agent.brain import (
     load_brain,
     read_pointer,
 )
+from api.auth import require_admin
 from api.config import settings
 
 log = logging.getLogger(__name__)
@@ -27,18 +26,6 @@ class ActivateRequest(BaseModel):
     """The version to make live."""
 
     version: str
-
-
-def require_admin(authorization: str | None = Header(default=None)) -> str:
-    """Bearer auth for the one mutating endpoint; an unset token closes it rather than opening it."""
-    if not settings.admin_api_token:
-        raise HTTPException(status_code=503, detail="ADMIN_API_TOKEN is not configured")
-
-    expected = f"Bearer {settings.admin_api_token}"
-    if authorization is None or not secrets.compare_digest(authorization, expected):
-        raise HTTPException(status_code=401, detail="missing or invalid bearer token")
-
-    return hashlib.sha256(expected.encode()).hexdigest()[:8]
 
 
 @router.get("")

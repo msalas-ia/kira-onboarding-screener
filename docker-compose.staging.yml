@@ -24,6 +24,9 @@ services:
       # production stays on the pinned one. Writable because POST /brain/activate
       # rewrites active_version.json in place — the app writes nothing else here.
       - ./company_brain:/app/company_brain:rw
+      # Run traces, one JSON line each. Written by the same non-root user as
+      # the pointer above; observability degrading must not fail a run.
+      - ./traces:/app/traces:rw
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
