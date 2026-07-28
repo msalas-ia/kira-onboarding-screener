@@ -153,8 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         print("could not measure: ANTHROPIC_API_KEY is unset and no --url was given", file=sys.stderr)
         return COULD_NOT_MEASURE
 
-    # Offline and free, so it runs before anything is spent: if the override
-    # stopped holding, there is no reason to pay for the rest.
+    # Offline and free, so it runs before anything is spent.
     ablation = compare(packets, brain, naive)
 
     applicant_ids = sorted(labels)
@@ -171,8 +170,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"could not measure: {exc}", file=sys.stderr)
         return COULD_NOT_MEASURE
     except GuardrailViolated as exc:
-        # Not a measurement failure: the system refused to return a verdict it
-        # could not justify, which is the never-auto-CLEAR property failing.
+        # Exit 1, not 2: the never-auto-CLEAR property failing is a fact about
+        # the change, not a failure to measure.
         print(f"gate failed: {exc}", file=sys.stderr)
         return GATE_FAILED
 

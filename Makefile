@@ -66,7 +66,6 @@ deploy-prod:
 	    docker compose -f $(PROD_COMPOSE) up -d --build; \
 	  echo "production now at $$(git rev-parse --short HEAD)"'
 
-# The gate, as CI runs it. Spends real money; the runner stops rather than
-# exceeding --max-cost-usd.
+# The gate, as CI runs it. Spends real money, bounded by --max-cost-usd.
 evals:
 	uv run python evals/run_evals.py --runs 3 --concurrency 4 --max-cost-usd 2.50

@@ -144,8 +144,6 @@ def _reported(report: Report) -> list[str]:
     outcomes = report.outcomes
     cached = sum(run.cached_input_tokens for run in outcomes)
     fresh = sum(run.input_tokens for run in outcomes)
-    # A report that divides by an unreported token count fails on the run that
-    # needed reporting most.
     cache_ratio = f"{100 * cached / (cached + fresh):.1f}%" if cached + fresh else "not reported"
     return [
         "| | |",

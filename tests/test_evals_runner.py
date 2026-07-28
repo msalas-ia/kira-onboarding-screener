@@ -1,6 +1,7 @@
 """The runner's contract: what it exits with, and that a budget is enforced rather than documented."""
 
 import json
+import re
 
 import pytest
 
@@ -12,6 +13,7 @@ from evals import run_evals
 from evals.run_evals import COULD_NOT_MEASURE, GATE_FAILED, Budget, BudgetExceeded, main, measure
 from evals.scoring import Gate
 from tests.conftest import FakeClient, extraction, proposal
+from tests.test_trace_has_no_pii import pii_of
 
 
 @pytest.fixture
@@ -139,3 +141,20 @@ def test_a_guardrail_violation_fails_the_gate_rather_than_reporting_it_unmeasura
     monkeypatch.setattr(run_evals, "in_process", lambda *args, **kwargs: refused)
 
     assert main(["--runs", "1", "--report", str(tmp_path / "r.md")]) == GATE_FAILED
+
+
+def test_the_machine_readable_dump_carries_no_pii_either(offline, tmp_path, packets):
+    """It is not committed, but it is an artifact somebody will paste somewhere."""
+    main(["--runs", "1", "--report", str(tmp_path / "r.md"), "--json", str(tmp_path / "r.json")])
+    dumped = (tmp_path / "r.json").read_text(encoding="utf-8").casefold()
+
+    # Whole words, not substrings: `reasons[]` carries the policy term
+    # `nominee_director`, which contains a UBO's `role` without being it.
+    leaks = {
+        applicant_id: [
+            value for value in pii_of(packet) if re.search(rf"\b{re.escape(value.casefold())}\b", dumped)
+        ]
+        for applicant_id, packet in packets.items()
+    }
+
+    assert {applicant_id: found for applicant_id, found in leaks.items() if found} == {}

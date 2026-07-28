@@ -1,8 +1,6 @@
 # The naive heuristic as a rule table, so the override is a comparison between two
-# versioned artifacts rather than a claim about a prompt. (D-015)
-#
-# Settings and prompts are byte-identical to v1: the rule table is the only
-# variable, which is what makes the comparison measure the rule table.
+# versioned artifacts rather than a claim about a prompt. Settings and prompts are
+# byte-identical to v1, so the table is the only variable. (D-014)
 
 policy_version: v0-naive
 
@@ -30,9 +28,8 @@ rules:
     cite: "exact sanctions match"
     evidence: [entry_id, name_score]
 
-  # The default keeps id 8, as in v1. A `v0-naive` rule 2 sitting beside v1's
-  # Rule 2 in the ablation table would read as one rule reaching two conclusions,
-  # and that is the one row of this deliverable that must not be ambiguous.
+  # Id 8, as in v1: a `v0-naive` rule 2 beside v1's Rule 2 in the ablation table
+  # would read as one rule reaching two conclusions.
   - id: 8
     when: {}
     decision: CLEAR

@@ -1,11 +1,12 @@
 """The override, measured as policy against policy: two versioned rule tables over one facts bag. (D-015)"""
 
 import copy
+import shutil
 from pathlib import Path
 
 import pytest
 
-from agent.brain import list_versions, load_version
+from agent.brain import activate, list_versions, load_version
 from agent.guardrails import GuardrailViolated, assert_no_auto_clear
 from agent.rules import evaluate
 from evals.ablation import NAIVE_VERSION, compare, facts_of, override_demonstrated
@@ -106,3 +107,15 @@ def test_the_comparison_reads_no_model(packets, brain, naive):
 
     assert "client" not in source
     assert "extract(" not in source
+
+
+def test_the_naive_version_activates_and_rolls_back_through_the_ordinary_mechanism(tmp_path):
+    """A demo artifact nobody can swap in is a file, not a Brain version."""
+    volume = tmp_path / "company_brain"
+    shutil.copytree(REPO_BRAIN, volume)
+
+    previous, swapped = activate(volume, NAIVE_VERSION)
+    restored_from, restored = activate(volume, previous)
+
+    assert (previous, swapped.version) == ("v1", NAIVE_VERSION)
+    assert (restored_from, restored.version) == (NAIVE_VERSION, "v1")

@@ -43,8 +43,7 @@ class RunOutcome:
     fingerprint: str
     cost_usd: float
     duration_ms: int
-    # Reported, never gated: a threshold on any of these would be invented rather
-    # than derived from the brief.
+    # Reported, never gated.
     searches: int = 0
     hits_added: int = 0
     hits_redundant: int = 0

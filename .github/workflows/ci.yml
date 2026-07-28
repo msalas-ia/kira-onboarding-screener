@@ -38,14 +38,12 @@ jobs:
         run: uv sync --frozen
 
       # Excluded explicitly rather than by the key being absent, because the eval
-      # job needs that key in this same workflow. Nothing is lost: the eval job
-      # makes 36 real calls through the same orchestrator.
+      # job needs that key in this same workflow.
       - name: Unit tests
         run: uv run pytest -q -m "not live"
 
-  # The gate runs the configuration production runs — the adjudication loop on,
-  # the same model, the same code path. What protects the budget is when it
-  # fires, not what it does: draft pull requests skip it. (D-016)
+  # The gate runs the configuration production runs. What protects the budget is
+  # when it fires, not what it does: draft pull requests skip it. (D-016)
   evals:
     needs: ci
     if: >-
@@ -65,10 +63,8 @@ jobs:
       - name: Install the locked environment
         run: uv sync --frozen
 
-      # Exit 1 is a gate failing, which is a fact about the change. Exit 2 is the
-      # suite being unable to measure — an overloaded model is not a regression,
-      # and there is no retry, because a gate that retries until it passes is a
-      # gate that passes.
+      # Exit 1 is a gate failing; exit 2 is the suite being unable to measure.
+      # There is no retry: a gate that retries until it passes is a gate that passes.
       - name: Eval gate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
