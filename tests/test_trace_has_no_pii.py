@@ -8,14 +8,14 @@ import pytest
 from agent.orchestrate import screen
 from agent.schemas import RunTrace
 from agent.trace import emit, render
-from tests.conftest import FakeClient, classify, extraction, named, signal
+from tests.conftest import FakeClient, classify, extraction, named, proposal, signal
 
 # Short enough and common enough that a substring test would fire on unrelated text.
 TOO_SHORT = 4
 
 
 def traced(packet, brain, **overrides):
-    client = FakeClient(extraction(**overrides))
+    client = FakeClient(extraction(**overrides), proposal(cited_entries=["EU-2001"]))
     return screen(packet, brain, client, run_id="run-0", model="claude-opus-5")[1]
 
 

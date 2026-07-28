@@ -58,13 +58,49 @@ hits the 003 sweep produces:
 Two cautions this table has to carry, or it overstates its own result:
 
 - This is the heuristic's implication if followed literally, computed in Python.
-  It is **not** a measurement of what the model will actually propose. A model
-  given "lean CLEAR" may still say REVIEW when it sees a corroborated sanctions
-  hit. Whatever it proposes is measured when the step lands, and reported as
-  found — §12 records what happens if it declines to be naive.
+  It is **not** a measurement of what the model will actually propose.
 - The deterministic half of the override demo already exists and does not depend
   on the proposal at all: APP-011 is REVIEW by Rule 2 at the end of 003. The
   proposal adds the thing to place beside it, not the result.
+
+### Measured: the model declines to be naive
+
+Eleven real runs once the step landed, `claude-opus-5` carrying the
+`base_heuristic` prompt and seeing only the tool's own output — `entry_id`,
+`hit_type`, `name_score` — with no rule table and no documents:
+
+| applicant | proposed | Brain | overridden |
+|---|---|---|---|
+| APP-011 | REVIEW | REVIEW | no |
+| APP-004, APP-012, APP-002 | REVIEW | REVIEW | no |
+| APP-005, APP-008 | REVIEW | REVIEW | no |
+| APP-009 | BLOCK | BLOCK | no |
+| APP-001 | CLEAR | CLEAR | no |
+
+**Zero overrides.** On APP-011 the model is handed a sanctions entity at 0.966 —
+not an exact match — and proposes REVIEW anyway, which is what the heuristic
+told it not to do. It cites `EU-2001` while doing so.
+
+A first attempt also showed it `corroborated` and `corroboration_basis`. That was
+a defect and was removed: corroboration is a conclusion the policy defines
+(D-003), so showing it leaked the rule table into the step built to reason
+without one. Removing it changed nothing — the result above is the corrected
+step.
+
+The finding stands as measured. Tuning the prompt until the model misbehaves
+would manufacture the demonstration rather than perform it, and §12 said so
+before the number came back. What follows from it:
+
+- **The override cannot be demonstrated by a model proposal**, because the model
+  does not need overruling. The demonstration the brief asks for has to rest on
+  the deterministic ablation — the same applicant against two policy versions —
+  which is a Brain swap and needs no model at all.
+- **`override` is still worth recording on every run.** It is the instrument; a
+  reading of "no disagreement" is a result, not a missing feature, and the field
+  is what would catch a future model that does drift.
+- **The rule table is the load-bearing safety mechanism, not the prompt.** That
+  is the conclusion this measurement actually supports, and it is a stronger
+  claim than the one the step was built to illustrate.
 
 ## 4. `POST /screen`
 
@@ -339,12 +375,11 @@ them.
 - **The loop is the only thing in the system that can break determinism.** It is
   bounded, monotone in severity and measured by criterion 12, and D-011 carries
   the way back. Stating it plainly is better than discovering it during a demo.
-- **The model may refuse to be naive.** Given "lean CLEAR" and a corroborated
-  sanctions hit, it may propose BLOCK anyway, and then `override` is `false` and
-  the trace shows agreement. That is a finding to report, not a prompt to tune
-  until it misbehaves — tuning a model into being wrong so a demo looks better is
-  the opposite of what the exercise is testing. The deterministic half of the
-  override stands on its own regardless (§3).
+- ~~**The model may refuse to be naive.**~~ **It did.** Eleven runs, zero
+  overrides (§3). Reported as found rather than tuned around. The consequence is
+  that the override demonstration moves to the deterministic ablation — the same
+  applicant against two Brain versions — which was always the stronger form of
+  the claim and needs no model at all.
 - **The second model call roughly doubles per-applicant cost.** Today's figure is
   $0.0094 and 5.6 s, all of it extraction. The proposal's prefix is the
   `base_heuristic` prompt, far under the 512-token minimum cacheable prefix, so

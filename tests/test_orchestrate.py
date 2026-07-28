@@ -8,7 +8,7 @@ from agent.guardrails import GuardrailViolated
 from agent.orchestrate import screen
 from agent.pricing import cost_of
 from agent.schemas import Usage
-from tests.conftest import ASSETS, FakeClient, extraction
+from tests.conftest import ASSETS, FakeClient, extraction, proposal
 
 USAGE = Usage(input_tokens=300, output_tokens=200, cache_read_input_tokens=3800, cache_creation_input_tokens=0)
 
@@ -18,8 +18,8 @@ def labels() -> dict[str, str]:
         return {row["applicant_id"]: row["expected_decision"] for row in csv.DictReader(handle)}
 
 
-def run(packet, brain, **overrides):
-    client = FakeClient(extraction(**overrides), usage=USAGE)
+def run(packet, brain, proposed=None, **overrides):
+    client = FakeClient(extraction(**overrides), proposed or proposal(), usage=USAGE)
     return screen(packet, brain, client, run_id="run-0", model="claude-opus-5")
 
 
@@ -82,9 +82,9 @@ def test_the_run_cost_is_arithmetic_over_its_calls(packets, brain):
     """A total that is measured separately from its parts is a second claim that can disagree with the first."""
     _, trace = run(packets["APP-001"], brain)
 
-    assert trace.usage == USAGE
-    assert trace.cost_usd == cost_of(USAGE, "claude-opus-5")
-    assert trace.cost_usd == trace.extract.cost_usd
+    assert trace.usage.input_tokens == 2 * USAGE.input_tokens
+    assert trace.extract.cost_usd == cost_of(USAGE, "claude-opus-5")
+    assert trace.cost_usd == pytest.approx(trace.extract.cost_usd + trace.propose.cost_usd, abs=1e-6)
 
 
 def test_a_second_run_of_the_same_packet_produces_the_same_case_file(packets, brain):

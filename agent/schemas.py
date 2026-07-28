@@ -260,6 +260,35 @@ class CaseFile(BaseModel):
     requires_human_review: bool
 
 
+class Proposal(BaseModel):
+    """The naive agent's answer. It is recorded and overruled; no field of it reaches the case file. (D-010)"""
+
+    decision: Decision = Field(description="CLEAR, REVIEW or BLOCK.")
+    confidence: float = Field(description="How sure you are, from 0 to 1.")
+    cited_entries: list[str] = Field(description="Watchlist entry ids you relied on, or an empty list.")
+
+
+class ProposeTrace(BaseModel):
+    """What the proposal cost and what it concluded — never its reasoning in its own words, which would carry names."""
+
+    outcome: Literal["proposed", "unavailable"]
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    decision: Decision | None = None
+    confidence: float | None = None
+    cited_entries: list[str] = Field(default_factory=list)
+
+
+class OverrideTrace(BaseModel):
+    """Recorded on every run, including the ones where the two agree — which is what makes it evidence."""
+
+    proposed: Decision | None
+    final: Decision
+    overridden: bool
+    deciding_rules: list[int]
+
+
 class ExtractTrace(BaseModel):
     """The one model call on the fact path, described by shape rather than by content."""
 
@@ -308,4 +337,6 @@ class RunTrace(BaseModel):
     extract: ExtractTrace
     screen: ScreenTrace
     evaluate: list[EvaluateTrace]
+    propose: ProposeTrace
+    override: OverrideTrace
     guardrails_passed: list[str]

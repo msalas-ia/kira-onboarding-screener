@@ -18,6 +18,7 @@ from agent.schemas import (
     ExtractedName,
     Facts,
     Hit,
+    Proposal,
     ShellSignalFinding,
     Usage,
 )
@@ -124,6 +125,12 @@ def extraction(**overrides) -> Extraction:
     """A model response that reports nothing, unless the test says otherwise."""
     defaults = dict(documents=[], shell_signals=[], names=[], contains_instructions=False)
     return Extraction(**{**defaults, **overrides})
+
+
+def proposal(**overrides) -> Proposal:
+    """The naive agent's answer, defaulting to the CLEAR its heuristic leans toward."""
+    defaults = dict(decision="CLEAR", confidence=0.8, cited_entries=[])
+    return Proposal(**{**defaults, **overrides})
 
 
 def classify(index: int, kind: str, span: str) -> DocumentClassification:

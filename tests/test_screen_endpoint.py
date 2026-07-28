@@ -9,7 +9,7 @@ from agent.schemas import CaseFile
 from api.config import settings
 from api.main import app
 from api.screen_routes import model_client
-from tests.conftest import FakeClient, extraction
+from tests.conftest import FakeClient, extraction, proposal
 
 SCREEN_TOKEN = "test-screen-token"
 HEADER = {"Authorization": f"Bearer {SCREEN_TOKEN}"}
@@ -20,7 +20,7 @@ def client(monkeypatch, tmp_path, packets):
     """The app with a primed model and a throwaway trace volume; the Brain is the real v1."""
     monkeypatch.setattr(settings, "screen_api_token", SCREEN_TOKEN)
     monkeypatch.setattr(settings, "traces_dir", tmp_path)
-    monkeypatch.setattr("api.screen_routes.model_client", lambda: FakeClient(*[extraction()] * 20))
+    monkeypatch.setattr("api.screen_routes.model_client", lambda: FakeClient(extraction(), proposal()))
     return TestClient(app)
 
 
