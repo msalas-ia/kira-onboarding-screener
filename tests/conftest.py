@@ -9,9 +9,21 @@ import yaml
 
 from agent.brain import load_version
 from agent.constants import POINTER_FILE, POLICY_FILE, RULES_FILE
-from agent.schemas import Brain, Facts, Hit
+from agent.llm import Completion
+from agent.schemas import (
+    Applicant,
+    Brain,
+    DocumentClassification,
+    Extraction,
+    ExtractedName,
+    Facts,
+    Hit,
+    ShellSignalFinding,
+    Usage,
+)
 
 REPO_BRAIN = Path("company_brain")
+ASSETS = Path("assets/data")
 ADMIN_TOKEN = "test-admin-token"
 AUTH_HEADER = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 PLACEHOLDER_POLICY = "# policy prose\n"
@@ -81,6 +93,49 @@ def without_rule(v1_document, make_brain_dir):
         return make_brain_dir(document, version=version)
 
     return _without
+
+
+@pytest.fixture(scope="session")
+def packets() -> dict[str, Applicant]:
+    """The delivered packets, by applicant id. Tests assert against real data, not fixtures of it."""
+    raw = json.loads((ASSETS / "applicants.json").read_text(encoding="utf-8"))
+    return {entry["applicant_id"]: Applicant.model_validate(entry) for entry in raw}
+
+
+class FakeClient:
+    """A model that answers with whatever the test primed it with, and records how it was called."""
+
+    def __init__(self, *responses, usage: Usage | None = None) -> None:
+        self.responses = list(responses)
+        self.usage = usage or Usage()
+        self.calls: list[dict] = []
+
+    def parse(self, *, system, messages, output_format):
+        self.calls.append({"system": system, "messages": messages, "output_format": output_format})
+        if not self.responses:
+            raise AssertionError("the fake client was called more times than it was primed for")
+        answer = self.responses.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return Completion(parsed=answer, usage=self.usage)
+
+
+def extraction(**overrides) -> Extraction:
+    """A model response that reports nothing, unless the test says otherwise."""
+    defaults = dict(documents=[], shell_signals=[], names=[], contains_instructions=False)
+    return Extraction(**{**defaults, **overrides})
+
+
+def classify(index: int, kind: str, span: str) -> DocumentClassification:
+    return DocumentClassification(index=index, kind=kind, evidence_span=span)
+
+
+def signal(name: str, index: int, span: str) -> ShellSignalFinding:
+    return ShellSignalFinding(signal=name, source_index=index, evidence_span=span)
+
+
+def named(name: str, index: int, span: str, kind: str = "person") -> ExtractedName:
+    return ExtractedName(name=name, kind=kind, source_index=index, evidence_span=span)
 
 
 def clean_facts(**overrides) -> Facts:

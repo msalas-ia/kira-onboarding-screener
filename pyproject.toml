@@ -20,6 +20,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: hits the real Anthropic API; skipped unless ANTHROPIC_API_KEY is set",
+]
 
 [build-system]
 requires = ["hatchling"]
