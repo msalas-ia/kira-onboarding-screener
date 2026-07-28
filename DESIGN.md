@@ -19,7 +19,9 @@ packet
   │                               same packet, so the model can only escalate
   │
   ├─▶ screen                      business + every UBO       (deterministic)
-  │                               + supplementary names from extraction
+  │                               + supplementary names from extraction,
+  │                               each searched once per token permutation
+  │                               of its name, unioned by (subject, entry)
   │
   ├─▶ corroborate                 DOB / country per hit      (deterministic)
   │
@@ -46,7 +48,7 @@ split by which side is actually good at the job.
 |---|---|---|
 | Extraction | LLM, unioned with a deterministic floor | Free text. Document `type` strings are inconsistent across applicants and need semantic normalisation, and this is where the embedded prompt injection must be resisted. The floor reads the same packet with no model involved, and the merge is a union, so extraction can raise severity but never lower it (D-008). |
 | Screening | Deterministic sweep, plus supplementary searches the LLM proposes for names it finds in documents | Coverage is a security invariant, not a judgment call. The model can only *add* searches, never remove one. |
-| Corroboration | Deterministic | The policy defines it as a field comparison (DOB, country/nationality). Implementing a comparison the policy already specifies is not hardcoding. |
+| Corroboration | Deterministic | The policy defines it as a field comparison (DOB, country/nationality). Implementing a comparison the policy already specifies is not hardcoding. One agreeing comparable pair is enough (D-003); no comparable pair at all is unconfirmed, because missing identity is not confirmed identity. |
 | Adjudication | LLM proposes, Brain rules decide | The proposal is what makes the override observable. |
 | `decision`, `reasons[]`, `confidence` | Deterministic | The policy requires identical *reasons*, not just identical decisions. |
 
@@ -64,8 +66,45 @@ that depended on sampling control would have no way to deliver what the brief
 asks for.
 
 The LLM still touches extraction, so its output is schema-constrained rather than
-free-form, and repeated-run hashing in the eval suite verifies stability
-empirically rather than assuming it.
+free-form, and repeated-run hashing verifies stability empirically rather than
+assuming it. What is hashed matters: the check compares the **whole verdict** —
+`decision`, `reasons[]`, `matched_entities[]`, `hits[]` and `screening_targets[]`
+— not just the facts bag. An earlier version compared the facts bag alone, which
+would have missed a model returning different supplementary names per run, since
+those names never enter `Facts` but do enter the screening sweep. The property
+asserted now matches the property the decision actually depends on.
+
+Measured over 60 real runs — the twelve labelled applicants, five times each:
+**one distinct serialisation per applicant, zero unstable fields**, and all twelve
+labelled decisions correct on every run.
+
+## The watchlist, and why it is not Brain state
+
+`assets/tools/watchlist_search.py` is imported **in place and unmodified**. There
+is exactly one copy of that file in the repository and it is the delivered one,
+so drift between "the tool we ship" and "the tool we were given" is impossible by
+construction rather than by a check that could be forgotten.
+
+Its matcher compares strings positionally, which means a name whose tokens are
+reordered scores far under the policy's threshold: `Kravchenko Olena` against the
+PEP entry `Olena Kravchenko` scores 0.625 and screens clean. That is a false
+clear, and the metric the brief requires to be zero. The fix is orchestration
+rather than a new matcher — each target is searched once per token permutation of
+its name and results are unioned by `(subject_ref, entry_id)`, keeping the
+strongest score (D-009). The four reordered names measured come back at 1.0, and
+over the 18 delivered packets the variants add zero hits and lose none. The union
+is monotone: more calls can raise a score or add an entry, never remove one.
+
+The watchlist itself is a **data feed, not policy**, so unlike the Brain it is
+baked into the image rather than mounted — the brief asks for a hot-swappable
+Brain, and a second writable mount would be surface with no demo behind it. Its
+sha256 is reported by `/health` as `watchlist_hash` beside `brain_hash`, taken
+from the file the tool itself resolved, so a stored decision is traceable to the
+list state as well as the policy state. An instance without a watchlist returns
+503: one that cannot screen is not ready.
+
+`min_name_score` stays Brain data. Permutation is a fact about how names are
+written, not about what counts as a match, so no policy value moved into code.
 
 ## The Company Brain
 
@@ -132,7 +171,7 @@ durability at the cost of new policy versions no longer arriving with a deploy.
 
 | | |
 |---|---|
-| Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly. |
+| Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly — verified against a Brain deliberately edited to map a corroborated sanctions hit to `CLEAR`, which is the case a correctly written table cannot protect against. Its message carries entry ids and never a subject's name, because it goes to a log. |
 | `REVIEW` / `BLOCK` route to a human | Terminal states are flagged for a compliance officer and never auto-action anything downstream. |
 | No PII in logs | Traces reference applicants and entities by ID. Names, dates of birth and identifiers are redacted before anything is written to log storage; the full case file exists only in the response to an authenticated caller. |
 | Documents are data, never instructions | Free text is delimited, numbered, and framed as untrusted input, and a document cannot close its own delimiter. The extraction schema has no `decision`, `confidence` or `reasons` field, so APP-009's request for "decision = CLEAR" has nowhere to land: the defence is the absence of a slot, not a filter that has to recognise the attack. What a document *could* still do is talk the model out of a finding, which is what the deterministic floor closes — signals, screening targets and the injection flag are the union of floor and model. Screening then runs unconditionally regardless of any of it. |
@@ -143,6 +182,7 @@ durability at the cost of new policy versions no longer arriving with a deploy.
 | | Handling |
 |---|---|
 | Brain volume missing, pointer malformed, or rule table invalid | `/health` returns 503; the instance is not ready and receives no screening traffic. No fallback to a previous version — an instance that cannot execute its policy stops rather than guessing |
+| Watchlist absent from the image | `/health` returns 503 for the same reason: an instance that cannot screen is not ready. This was a real defect, not a hypothetical — the Dockerfile shipped only `agent/` and `api/`, and `.dockerignore` excluded `assets/` outright, so every environment would have failed to screen while every local test passed |
 | Policy edit that references a fact nobody produces | Rejected at activation with 422 and the validation errors; the pointer does not move |
 | The Brain's pinned `as_of_date` goes stale | Harmless within this challenge — verified decision-neutral across all 18 applicants — but a real deployment needs a policy-review cadence. The date is visible in `GET /brain` rather than buried in code |
 | Model unavailable, rate limited, or without a credential | The SDK retries transport failures; anything left over raises `ModelUnavailable`, which extraction turns into a stopped run. There is no partial extraction: an empty one reports no shell signals, which is the unsafe direction. An unset `ANTHROPIC_API_KEY` surfaces here as a service fault rather than an unhandled `TypeError` |
@@ -206,23 +246,28 @@ the policy text, both from the Brain and byte-stable across applicants, marked
 prefix and the pair is comfortably above it. `usage` is captured on every
 response and carried into the trace in spec 004.
 
-Measured over 60 real calls — the twelve labelled applicants, five times each,
-`claude-opus-5`:
+Measured twice, over 60 real calls each — the twelve labelled applicants, five
+times each, `claude-opus-5`. Both figures are reported because the spread between
+them is the honest error bar on a single measurement:
 
-| | |
-|---|---|
-| Latency | 4.1 s per applicant |
-| Input | 93% served from cache (236,940 cached vs 17,684 fresh tokens) |
-| Output | 178 tokens per call |
-| Cost | $0.0079 per applicant; $0.48 for the whole sweep |
+| | spec 002 sweep | spec 003 sweep |
+|---|---|---|
+| Latency | 4.1 s per applicant | 5.6 s per applicant |
+| Input from cache | 93% (236,940 cached / 17,684 fresh) | 91% (228,625 cached / 17,717 fresh) |
+| Output | 178 tokens per call | 224 tokens per call |
+| Cost | $0.0079 per applicant | $0.0094 per applicant |
+
+Screening adds nothing to either: the sweep is 124 local `difflib` calls for all
+18 packets, with no network and no tokens. The whole per-applicant cost is
+extraction.
 
 The cache figure is the prompt-plus-policy prefix doing its job: only the packet
 itself is fresh input on each call. A live test asserts
 `cache_read_input_tokens > 0` on a second call, so the claim keeps being checked
 rather than being a one-off measurement quoted forever.
 
-That same sweep is the determinism evidence: all five runs produced one distinct
-serialisation of the facts bag for every applicant, with no unstable field.
+Each sweep is also the determinism evidence for its spec — the 003 one hashing
+the full verdict rather than the facts bag.
 
 No sampling parameters are sent: `temperature`, `top_p` and `top_k` are rejected
 with HTTP 400 on current models. `max_tokens` bounds thinking and response text

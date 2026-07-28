@@ -35,7 +35,7 @@ Brain artifacts (loader, validation, hash, `GET /brain`), injection flagging, an
 the offline test layer for all of it.
 
 **Out of scope**: `watchlist_search` and hits (003), the adjudication proposal
-step that consumes the `base_heuristic` prompt (003), `/screen`, trace
+step that consumes the `base_heuristic` prompt (004), `/screen`, trace
 persistence and PII redaction (004), the eval suite and the CI gate (005).
 Nothing here produces a decision — the extraction schema has no field shaped like
 one.
@@ -66,7 +66,7 @@ company_brain/versions/v1/
 ├── rules.yaml
 └── prompts/
     ├── extraction.md        # role: extraction   — consumed by this spec
-    └── base_heuristic.md    # role: base_heuristic — consumed by spec 003
+    └── base_heuristic.md    # role: base_heuristic — consumed by spec 004
 ```
 
 ```yaml
@@ -105,7 +105,7 @@ with no demo behind it.
 
 `base_heuristic.md` carries the naive rule the policy explicitly permits — *"if
 there is no exact sanctions match, lean toward CLEAR"* — and nothing else. Spec
-003's proposal step is its only reader. Putting it in the Brain is what makes the
+004's proposal step is its only reader. Putting it in the Brain is what makes the
 APP-011 ablation a swap between two versioned artifacts rather than a code branch
 that could be accused of being staged.
 

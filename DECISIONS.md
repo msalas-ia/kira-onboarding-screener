@@ -204,3 +204,41 @@ specifically to fool it.
   extraction reports no shell signals, which is the unsafe direction.
 - The floor's patterns are a detection heuristic and live in Python. Rule 7's
   threshold stays in the Brain, so no policy value moved into code.
+
+## D-009 — Recall is bought with more calls to the delivered tool, never a new matcher (2026-07-28)
+
+Two requirements meet on this step, again. The brief hands over a reference
+`watchlist_search` and says to use it as-is or reimplement it, and it demands a
+false-clear rate of zero. Those disagree: `difflib.SequenceMatcher` compares
+strings positionally, so a name whose tokens are reordered scores far below the
+policy's 0.75 threshold and screens clean. Measured against the delivered
+watchlist, `Kravchenko Olena` scores **0.625** against PEP-3004, `Petrov Viktor`
+**0.545** against OFAC-1001, `Sokolova Ivanka` **0.533** against EU-2001 and
+`Al-Rashid Muhammad` **0.500** against OFAC-1003. Every one of those is a
+sanctions or PEP entity clearing silently, and the grading holdout is described
+as similar cases the dev set does not show — six watchlist entries are
+unexercised by it, `Olena Kravchenko` among them.
+
+The tool is used **byte-identical and imported in place**: there is exactly one
+copy of that file in the repository and it is the delivered one, so drift is
+impossible by construction rather than by a CI check. What changes is
+orchestration, which the tool contract already assigns to the agent: each target
+is searched once per token permutation of its name, and results are unioned by
+`(subject_ref, entry_id)` keeping the strongest score. All four names above come
+back at **1.0**, and over the 18 delivered packets the variants add **zero** hits
+and lose none — 9 before, 9 after.
+
+Reimplementing the scorer with a token-sorted comparison was rejected. It reaches
+the same recall with the same zero added hits, and it is less code, but it
+replaces the delivered artifact with our own on the one path a reviewer reads
+most carefully. Leaving the miss alone was also rejected: it is a false clear by
+construction, on the metric the brief requires to be zero.
+
+- The union is monotone. More calls can only raise a score or add an entry, never
+  remove one, so this cannot turn a hit into a non-hit.
+- `min_score` still comes from `brain.settings.min_name_score`. No policy value
+  moved into code; permutation is a fact about how names are written, not about
+  what counts as a match.
+- Permutations recover reordering only — not transliteration, diacritics or
+  initials. A real deployment needs a name-matching library, and saying so is
+  better than pretending this generalises.
