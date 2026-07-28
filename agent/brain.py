@@ -16,6 +16,8 @@ from agent.constants import (
     OPERATORS,
     POINTER_FILE,
     POLICY_FILE,
+    PROMPT_ROLES,
+    REQUIRED_PROMPT_ROLES,
     RULES_FILE,
 )
 from agent.schemas import Brain, BrainSettings, Pointer, Rule
@@ -76,25 +78,101 @@ def load_version(brain_dir: Path, version: str) -> Brain:
     except (FileNotFoundError, NotADirectoryError) as exc:
         raise BrainUnavailable(f"version {version!r} is incomplete: {exc}") from exc
 
-    brain_hash = "sha256:" + hashlib.sha256(policy_bytes + b"\0" + rules_bytes).hexdigest()
+    # Prompt paths live in the table, so it is parsed before the hash can be taken.
+    document = _document(version, rules_bytes)
+    prompt_bytes = _read_prompts(version, directory, document)
+
+    brain_hash = _digest(policy_bytes, rules_bytes, prompt_bytes)
     cached = _CACHE.get(brain_hash)
     if cached is not None:
         return cached
 
-    brain = _parse(version, policy_bytes, rules_bytes, brain_hash)
+    brain = _parse(version, document, policy_bytes, prompt_bytes, brain_hash)
     _CACHE[brain_hash] = brain
     return brain
 
 
-def _parse(version: str, policy_bytes: bytes, rules_bytes: bytes, brain_hash: str) -> Brain:
-    """Turn the two files of a version directory into an executable Brain."""
+def _document(version: str, rules_bytes: bytes) -> dict[str, Any]:
+    """The rule table as a mapping, or a load failure."""
     try:
         document = yaml.safe_load(rules_bytes.decode("utf-8"))
     except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise BrainInvalid(version, [f"{RULES_FILE} is not valid YAML: {exc}"]) from exc
     if not isinstance(document, dict):
         raise BrainInvalid(version, [f"{RULES_FILE} must be a mapping"])
+    return document
 
+
+def _read_prompts(version: str, directory: Path, document: dict[str, Any]) -> dict[str, bytes]:
+    """Resolve the declared role → path mapping into bytes, or fail the load."""
+    declared = document.get("prompts")
+    if not isinstance(declared, dict):
+        raise BrainInvalid(version, [f"{RULES_FILE}: `prompts` must map each role to a path"])
+
+    root = directory.resolve()
+    errors: list[str] = []
+    prompts: dict[str, bytes] = {}
+
+    for role, relative in sorted(declared.items()):
+        label = f"prompts[{role}]"
+        if role not in PROMPT_ROLES:
+            errors.append(f"prompts: unknown role {role!r}")
+            continue
+        if not isinstance(relative, str) or not relative.strip():
+            errors.append(f"{label}: path must be a non-empty string")
+            continue
+
+        path = (directory / relative).resolve()
+        if Path(relative).is_absolute() or not path.is_relative_to(root):
+            errors.append(f"{label}: path {relative!r} escapes the version directory")
+            continue
+
+        try:
+            content = path.read_bytes()
+        except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+            errors.append(f"{label}: file not found: {relative}")
+            continue
+        except OSError as exc:
+            errors.append(f"{label}: cannot read {relative}: {exc}")
+            continue
+
+        if not content.strip():
+            errors.append(f"{label}: {relative} is empty")
+            continue
+
+        prompts[role] = content
+
+    for role in sorted(REQUIRED_PROMPT_ROLES - set(prompts)):
+        if not any(error.startswith(f"prompts[{role}]") for error in errors):
+            errors.append(f"prompts: required role {role!r} is missing")
+
+    if errors:
+        raise BrainInvalid(version, errors)
+    return prompts
+
+
+def _digest(policy_bytes: bytes, rules_bytes: bytes, prompts: dict[str, bytes]) -> str:
+    """Hash a version as one unit: prose, table and every prompt, roles in sorted order."""
+    digest = hashlib.sha256()
+    digest.update(policy_bytes)
+    digest.update(b"\0")
+    digest.update(rules_bytes)
+    for role in sorted(prompts):
+        digest.update(b"\0")
+        digest.update(role.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(prompts[role])
+    return "sha256:" + digest.hexdigest()
+
+
+def _parse(
+    version: str,
+    document: dict[str, Any],
+    policy_bytes: bytes,
+    prompt_bytes: dict[str, bytes],
+    brain_hash: str,
+) -> Brain:
+    """Turn a version directory into an executable Brain."""
     try:
         settings = BrainSettings.model_validate(document.get("settings") or {})
     except ValidationError as exc:
@@ -117,6 +195,13 @@ def _parse(version: str, policy_bytes: bytes, rules_bytes: bytes, brain_hash: st
                 f"required_documents[{required.id}]: {required.satisfied_by!r} is not a declared boolean fact"
             )
 
+    prompts: dict[str, str] = {}
+    for role, content in prompt_bytes.items():
+        try:
+            prompts[role] = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            errors.append(f"prompts[{role}]: not valid UTF-8: {exc}")
+
     errors.extend(_validate_rules(rules))
     if errors:
         raise BrainInvalid(version, errors)
@@ -126,6 +211,7 @@ def _parse(version: str, policy_bytes: bytes, rules_bytes: bytes, brain_hash: st
         settings=settings,
         rules=rules,
         policy_text=policy_bytes.decode("utf-8"),
+        prompts=prompts,
         brain_hash=brain_hash,
     )
 
@@ -214,6 +300,7 @@ def list_versions(brain_dir: Path) -> list[dict[str, Any]]:
                     "version": path.name,
                     "valid": True,
                     "rules": len(brain.rules),
+                    "prompts": sorted(brain.prompts),
                     "brain_hash": brain.brain_hash,
                 }
             )

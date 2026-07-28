@@ -4,6 +4,14 @@
 
 policy_version: v1
 
+# The brief asks for the Brain *and prompt* to be versioned and updatable without
+# a code rewrite, so the prompts are artifacts of this version directory and enter
+# brain_hash with the prose and the table. Code asks for a prompt by role, never
+# by path. (D-007)
+prompts:
+  extraction: prompts/extraction.md
+  base_heuristic: prompts/base_heuristic.md
+
 settings:
   min_name_score: 0.75
   as_of_date: "2026-07-27"        # fixed, never the wall clock (D-006)

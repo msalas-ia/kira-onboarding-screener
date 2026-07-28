@@ -15,6 +15,7 @@ REPO_BRAIN = Path("company_brain")
 ADMIN_TOKEN = "test-admin-token"
 AUTH_HEADER = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
 PLACEHOLDER_POLICY = "# policy prose\n"
+PLACEHOLDER_PROMPT = "# prompt\n"
 
 
 @pytest.fixture
@@ -30,13 +31,31 @@ def v1_document() -> dict:
 
 
 def publish(brain_dir: Path, document: dict, version: str) -> Path:
-    """Write a version onto a Brain volume the way an operator would."""
+    """Write a version onto a Brain volume the way an operator would: prose, table and every declared prompt."""
     document = copy.deepcopy(document) | {"policy_version": version}
     directory = brain_dir / "versions" / version
     directory.mkdir(parents=True, exist_ok=True)
     (directory / POLICY_FILE).write_text(PLACEHOLDER_POLICY, encoding="utf-8")
     (directory / RULES_FILE).write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+
+    for relative in (document.get("prompts") or {}).values():
+        if not isinstance(relative, str):
+            continue
+        path = (directory / relative).resolve()
+        if Path(relative).is_absolute() or not path.is_relative_to(directory.resolve()):
+            continue  # the traversal cases: an operator only ever writes inside the version
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(PLACEHOLDER_PROMPT, encoding="utf-8")
     return directory
+
+
+def make_client_brain(monkeypatch, v1_document, make_brain_dir, version: str = "v1") -> Path:
+    """Point the running app at a throwaway copy of a Brain volume."""
+    from api.config import settings
+
+    brain_dir = make_brain_dir(copy.deepcopy(v1_document), version=version)
+    monkeypatch.setattr(settings, "brain_dir", brain_dir)
+    return brain_dir
 
 
 @pytest.fixture

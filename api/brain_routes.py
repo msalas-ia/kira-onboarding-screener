@@ -55,6 +55,8 @@ def describe_brain() -> dict:
         "previous_version": pointer.previous_version,
         "brain_hash": brain.brain_hash,
         "rules": len(brain.rules),
+        # Roles only: an endpoint that dumps prompt bodies is surface with no demo behind it.
+        "prompts": sorted(brain.prompts),
         "settings": brain.settings.model_dump(mode="json"),
     }
 
