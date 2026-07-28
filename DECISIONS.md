@@ -386,3 +386,66 @@ everything would have paid for determinism with the one case the loop exists for
   only the first can move a verdict and only the first can make two runs differ.
 - Nothing is hidden by the drop: every entity every search returned is already
   recorded in `propose.searches`.
+
+## D-014 — The naive baseline is a Brain version, not a prompt (2026-07-28)
+
+The brief requires showing the Company Brain overrule the agent's base
+instructions, and D-010 measured that the model does not need overruling: eleven
+runs carrying the naive heuristic, zero overrides, including APP-011 where it is
+handed a 0.966 non-exact sanctions match and proposes REVIEW anyway. The
+demonstration the brief asks for therefore has nothing to rest on unless it stops
+being a claim about a prompt.
+
+`company_brain/versions/v0-naive/` is the naive heuristic promoted from an
+instruction into a rule table: an exact sanctions match blocks, everything else
+clears. Its settings and its prompts are byte-identical to v1, so the rule table
+is the only variable and a difference in decisions measures the rule table.
+`compare()` refuses to run if the two disagree on settings, so that claim is
+enforced rather than commented.
+
+Rejected: tuning `base_heuristic.md` until the model misbehaves. That
+manufactures the demonstration rather than performing it, and spec 004 §12
+committed to reporting the finding before the number came back. Rejected: a code
+branch that skips the Brain — which is precisely what a reviewer should suspect
+of being staged.
+
+- Measured over the 18 delivered packets: the two policies disagree on **10**, and
+  on **7 of the 12 labelled**, reproducing spec 004 §3's Python simulation
+  exactly. Every disagreement is in the CLEAR direction.
+- **The never-auto-CLEAR guardrail catches 5 of those 10 and no more.** It sees
+  the ones carrying a watchlist hit and is silent on APP-005, 006, 008, 017 and
+  018, where the correct verdict comes from MCC risk, missing documents or shell
+  signals. Under a wrong policy, half the false clears are refused at runtime and
+  half are served. That is the argument for an eval suite existing, and it is
+  pinned by a test rather than described.
+- The ablation runs the rules engine over one facts bag, with no model and no
+  network, so it gates on every run rather than on the ones somebody paid for.
+- Shipping a deliberately unsafe policy on a writable volume is a real trade. It
+  is admin-token guarded, a deploy restores the committed pointer, and the
+  guardrail refuses the half of its output that carries a hit.
+
+## D-015 — A false clear is defined by construction, and the labelled rate is reported beside it (2026-07-28)
+
+The brief names "false-clear rate, target zero" without stating a denominator.
+The plan's reading — the labelled applicants whose ground truth involves a
+watchlist hit — has a property that disqualifies it as the *gating* definition:
+it cannot be computed for anyone nobody has scored, which is every applicant in
+the hidden holdout and six of the eighteen packets in the bundle, two of which
+carry real hits.
+
+The gating definition is therefore structural: a false clear is any run where
+`hits[]` is non-empty and the decision is `CLEAR`. It needs no labels, so it
+means the same thing on the dev set, on the unlabelled packets and on an
+applicant nobody has ever seen. The labelled rate is computed and reported beside
+it, with its denominator printed, because those are the words the brief uses.
+
+Rejected: gating on the labelled rate alone, which would leave the six unlabelled
+packets measured by nothing.
+
+- The hit-bearing denominator is **derived from the labels** rather than listed
+  in code: a label is hit-bearing when its reason cites a watchlist entry id. An
+  edited label cannot leave a stale set behind, and a test guards the pattern
+  against matching the dates in APP-011's reason.
+- The two gates fail independently, and a test drives exactly that case: a false
+  clear on an unlabelled applicant fails the structural gate while the labelled
+  rate stays at zero, which is the situation the holdout is made of.

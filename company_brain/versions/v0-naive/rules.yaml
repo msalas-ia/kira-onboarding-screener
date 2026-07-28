@@ -1,0 +1,40 @@
+# The naive heuristic as a rule table, so the override is a comparison between two
+# versioned artifacts rather than a claim about a prompt. (D-015)
+#
+# Settings and prompts are byte-identical to v1: the rule table is the only
+# variable, which is what makes the comparison measure the rule table.
+
+policy_version: v0-naive
+
+prompts:
+  extraction: prompts/extraction.md
+  base_heuristic: prompts/base_heuristic.md
+
+settings:
+  min_name_score: 0.75
+  as_of_date: "2026-07-27"
+  formation_recent_days: 90
+
+  required_documents:
+    - id: certificate_of_incorporation
+      satisfied_by: has_incorporation_doc
+    - id: ubo_list
+      satisfied_by: has_ubo_list
+
+rules:
+  - id: 1
+    scope: each_hit
+    when: {hit_type: sanctions, name_score: {gte: 1.0}}
+    decision: BLOCK
+    confidence: 0.95
+    cite: "exact sanctions match"
+    evidence: [entry_id, name_score]
+
+  # The default keeps id 8, as in v1. A `v0-naive` rule 2 sitting beside v1's
+  # Rule 2 in the ablation table would read as one rule reaching two conclusions,
+  # and that is the one row of this deliverable that must not be ambiguous.
+  - id: 8
+    when: {}
+    decision: CLEAR
+    confidence: 0.90
+    cite: "no exact sanctions match"
