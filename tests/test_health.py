@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from agent.brain import BrainUnavailable, load_brain
 from agent.constants import POINTER_FILE
+from agent.screening import WatchlistUnavailable, watchlist_digest
 from api.config import settings
 from api.main import app
 
@@ -21,6 +22,24 @@ def test_health_reports_ready_with_the_active_brain_version():
     assert body["status"] == "ok"
     assert body["brain_version"] == "v1"
     assert body["brain_hash"].startswith("sha256:")
+
+
+def test_health_reports_the_watchlist_the_tool_resolved():
+    """Policy state and list state are separate claims: a decision has to be traceable to both."""
+    body = client.get("/health").json()
+
+    assert body["watchlist_hash"] == watchlist_digest()
+    assert body["watchlist_hash"] != body["brain_hash"]
+
+
+def test_readiness_fails_when_the_container_has_no_watchlist(monkeypatch):
+    """An instance that cannot screen is not ready, the same as one that cannot read its policy."""
+    monkeypatch.setattr("api.main.watchlist_digest", lambda: (_ for _ in ()).throw(WatchlistUnavailable("no data")))
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["reason"] == "no data"
 
 
 def test_health_is_readiness_not_liveness(tmp_path):

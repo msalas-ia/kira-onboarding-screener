@@ -2,6 +2,10 @@
 .github/
 .claude/
 assets/
+# …except the watchlist and the tool that reads it: the container screens with the
+# delivered artifacts, so they ship. Nothing else from the bundle does.
+!assets/tools/watchlist_search.py
+!assets/data/watchlist.json
 tests/
 evals/
 specs/
