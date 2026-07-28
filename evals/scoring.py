@@ -43,6 +43,16 @@ class RunOutcome:
     fingerprint: str
     cost_usd: float
     duration_ms: int
+    # Reported, never gated: a threshold on any of these would be invented rather
+    # than derived from the brief.
+    searches: int = 0
+    hits_added: int = 0
+    hits_redundant: int = 0
+    overridden: bool = False
+    proposed: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_input_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -88,6 +98,14 @@ def outcome_of(case_file: CaseFile, trace: RunTrace) -> RunOutcome:
         fingerprint=fingerprint(case_file, trace),
         cost_usd=trace.cost_usd,
         duration_ms=trace.duration_ms,
+        searches=len(trace.propose.searches),
+        hits_added=trace.propose.hits_added,
+        hits_redundant=trace.propose.hits_redundant,
+        overridden=trace.override.overridden,
+        proposed=trace.override.proposed,
+        input_tokens=trace.usage.input_tokens,
+        output_tokens=trace.usage.output_tokens,
+        cached_input_tokens=trace.usage.cache_read_input_tokens,
     )
 
 

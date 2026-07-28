@@ -20,3 +20,6 @@ traces/
 .DS_Store
 .idea/
 .vscode/
+
+# The report is the deliverable; the machine-readable dump is 35 KB of fingerprints.
+evals/results.json
