@@ -109,11 +109,24 @@ which is why the container runs non-root but with the host's group: it needs
 write access to exactly one file and nothing else.
 
 The pointer is also a committed file, so the repository is the declared active
-version and a deploy re-asserts it. A hot-swap survives a container restart but
-not a redeploy — it is an operational override, not a change of intent. The
-alternative, moving the pointer outside the checkout, buys swap durability at the
-cost of new policy versions no longer arriving with a deploy, which is the worse
-trade when the live task is adding a rule.
+version. A hot-swap survives a container restart but not a redeploy: it is an
+operational override, not a change of intent. That is **enforced by the deploy
+target**, which restores the committed pointer before switching commits —
+`git checkout -- company_brain/active_version.json`. Without that line the
+override outlives every deploy, silently, because git carries a locally modified
+tracked file across a checkout when its content is unchanged between the two
+commits; and once the pointer *does* change in some commit, git refuses the
+checkout outright and the deploy aborts on a message about local changes. Both
+were observed on staging before the line was added.
+
+The brief requires the swap to work "without a redeploy" and to have a rollback
+path; it says nothing about whether a swap should outlive a later deploy, so this
+is a design choice rather than a forced one. Persisting it was rejected because
+nothing would ever reconcile the running policy with the repository, and drift
+between the two is exactly what `brain_hash` exists to make visible. Under the
+rule above there are two ways back to the declared version — activate it, or
+deploy — and the alternative of moving the pointer outside the checkout buys swap
+durability at the cost of new policy versions no longer arriving with a deploy.
 
 ## Guardrails
 

@@ -2,6 +2,9 @@ REMOTE_HOST  ?= adapt-server
 STAGING_DIR  ?= ~/apps/kira-staging
 PROD_DIR     ?= ~/apps/kira-prod
 
+# A deploy discards any hot-swap: the committed pointer is the declared active version.
+POINTER      := active_version.json
+
 STAGING_COMPOSE := docker-compose.staging.yml
 PROD_COMPOSE    := docker-compose.prod.yml
 
@@ -44,6 +47,7 @@ endif
 	ssh $(REMOTE_HOST) 'set -e; \
 	  cd $(STAGING_DIR); \
 	  git fetch --all --prune; \
+	  git checkout -- company_brain/$(POINTER); \
 	  git checkout --detach origin/$(REF) 2>/dev/null || git checkout --detach $(REF); \
 	  GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
 	    docker compose -f $(STAGING_COMPOSE) up -d --build; \
@@ -55,6 +59,7 @@ deploy-prod:
 	ssh $(REMOTE_HOST) 'set -e; \
 	  cd $(PROD_DIR); \
 	  git fetch --all --prune; \
+	  git checkout -- company_brain/$(POINTER); \
 	  git checkout --detach origin/main; \
 	  GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
 	    docker compose -f $(PROD_COMPOSE) up -d --build; \
