@@ -11,7 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
+  # Named `ci` because that is the context main's branch protection requires.
+  # Renaming it would leave every pull request waiting for a check nobody runs.
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +47,7 @@ jobs:
   # the same model, the same code path. What protects the budget is when it
   # fires, not what it does: draft pull requests skip it. (D-016)
   evals:
-    needs: checks
+    needs: ci
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'push' && github.ref == 'refs/heads/main')
