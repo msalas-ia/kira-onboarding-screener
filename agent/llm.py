@@ -1,6 +1,6 @@
 """The Anthropic client, behind a protocol small enough that a test can implement it in five lines."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar
 
 import anthropic
@@ -19,15 +19,26 @@ class ModelUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    """One request from the model to run a tool: which one, with what arguments, and the id its result must quote."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class Completion:
-    """One structured response: the validated object, and what it cost."""
+    """One response: the validated object if the model answered, or the tools it wants run first, and what it cost."""
 
     parsed: Any
     usage: Usage
+    tool_calls: tuple[ToolCall, ...] = ()
+    content: list[Any] = field(default_factory=list)
 
 
 class StructuredClient(Protocol):
-    """What extraction needs from a model; anything satisfying this can stand in for the SDK."""
+    """What the agent needs from a model; anything satisfying this can stand in for the SDK."""
 
     def parse(
         self,
@@ -35,8 +46,9 @@ class StructuredClient(Protocol):
         system: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         output_format: type[Parsed],
+        tools: list[dict[str, Any]] | None = None,
     ) -> Completion:
-        """Return an instance of `output_format`, or raise `ModelUnavailable`."""
+        """Return an instance of `output_format`, a request to run a tool, or raise `ModelUnavailable`."""
         ...
 
 
@@ -64,6 +76,7 @@ class AnthropicClient:
         system: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         output_format: type[Parsed],
+        tools: list[dict[str, Any]] | None = None,
     ) -> Completion:
         """One structured call. Transport failures are retried by the SDK; anything left over raises."""
         try:
@@ -73,6 +86,7 @@ class AnthropicClient:
                 system=system,
                 messages=messages,
                 output_format=output_format,
+                **({"tools": tools} if tools else {}),
             )
         except anthropic.APIError as exc:
             raise ModelUnavailable(f"{type(exc).__name__}: {exc}") from exc
@@ -84,10 +98,23 @@ class AnthropicClient:
             raise ModelUnavailable("the model declined to answer")
         if response.stop_reason == "max_tokens":
             raise ModelUnavailable(f"response truncated at max_tokens={self.max_tokens}")
+
+        calls = tool_calls_of(response)
+        if calls:
+            return Completion(parsed=None, usage=usage_of(response), tool_calls=calls, content=list(response.content))
         if response.parsed_output is None:
             raise ModelUnavailable("the response carried no parsed output")
 
         return Completion(parsed=response.parsed_output, usage=usage_of(response))
+
+
+def tool_calls_of(response: Any) -> tuple[ToolCall, ...]:
+    """The tool_use blocks of a turn, in the order the model asked for them."""
+    return tuple(
+        ToolCall(id=block.id, name=block.name, arguments=dict(block.input or {}))
+        for block in getattr(response, "content", [])
+        if getattr(block, "type", None) == "tool_use"
+    )
 
 
 def usage_of(response: Any) -> Usage:

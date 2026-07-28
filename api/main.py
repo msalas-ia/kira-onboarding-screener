@@ -5,9 +5,11 @@ from agent.brain import BrainUnavailable, load_brain
 from agent.screening import WatchlistUnavailable, watchlist_digest
 from api.brain_routes import router as brain_router
 from api.config import settings
+from api.screen_routes import router as screen_router
 
 app = FastAPI(title="Kira Onboarding Screener", version="0.1.0")
 app.include_router(brain_router)
+app.include_router(screen_router)
 
 
 @app.get("/health")

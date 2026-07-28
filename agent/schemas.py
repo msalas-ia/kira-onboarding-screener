@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 Decision = Literal["BLOCK", "REVIEW", "CLEAR"]
 HitType = Literal["sanctions", "pep", "adverse_media"]
 Scope = Literal["applicant", "each_hit"]
-Subject = Literal["business", "ubo"]
+# `proposed` is a spelling the model tried, not a party the packet declared, so
+# it has no identity to corroborate against. (D-011)
+Subject = Literal["business", "ubo", "proposed"]
 
 # Mirrors constants.py; tests/test_extraction_schema.py pins the two together.
 DocumentKind = Literal["incorporation", "ubo_declaration", "proof_of_address", "website_extract", "other"]
@@ -160,7 +162,7 @@ class ScreeningTarget(BaseModel):
     subject_ref: str
     dob: date | None = None
     country: str | None = None
-    source: Literal["packet", "document"] = "packet"
+    source: Literal["packet", "document", "proposed"] = "packet"
 
 
 class Usage(BaseModel):
@@ -182,6 +184,7 @@ class ExtractionResult(BaseModel):
     screening_targets: list[ScreeningTarget] = Field(default_factory=list)
     injection_suspected: bool = False
     dropped_targets: int = 0
+    retries: int = 0
     usage: Usage | None = None
 
 
@@ -240,3 +243,124 @@ class Verdict(BaseModel):
     policy_version: str
     fired_rules: list[int]
     brain_hash: str
+
+
+class CaseFile(BaseModel):
+    """The policy's output contract, plus the hashes that tie a stored decision to the state that produced it."""
+
+    applicant_id: str
+    decision: Decision
+    confidence: float
+    reasons: list[str]
+    matched_entities: list[MatchedEntity]
+    missing_docs: list[str]
+    policy_version: str
+    brain_hash: str
+    watchlist_hash: str
+    run_id: str
+    requires_human_review: bool
+
+
+class Proposal(BaseModel):
+    """The naive agent's answer. It is recorded and overruled; no field of it reaches the case file. (D-010)"""
+
+    decision: Decision = Field(description="CLEAR, REVIEW or BLOCK.")
+    confidence: float = Field(description="How sure you are, from 0 to 1.")
+    cited_entries: list[str] = Field(description="Watchlist entry ids you relied on, or an empty list.")
+
+
+class SearchOutcome(BaseModel):
+    """What a model-initiated search returned. Entry ids are watchlist data, not applicant data."""
+
+    entry_id: str
+    name_score: float
+
+
+class SearchRecord(BaseModel):
+    """One search the model asked for, by shape and by result — never the string it searched for. (D-012)"""
+
+    ordinal: int
+    tokens: int
+    accepted: bool
+    entries: list[SearchOutcome] = Field(default_factory=list)
+
+
+class ProposeTrace(BaseModel):
+    """What the proposal cost and what it concluded — never its reasoning in its own words, which would carry names."""
+
+    outcome: Literal["proposed", "unavailable", "no_answer"]
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    steps: int = 0
+    budget: Literal["within", "steps_exhausted", "time_exhausted"] = "within"
+    searches: list[SearchRecord] = Field(default_factory=list)
+    # Split because only the novel ones reach the verdict. (D-013)
+    hits_added: int = 0
+    hits_redundant: int = 0
+    decision: Decision | None = None
+    confidence: float | None = None
+    cited_entries: list[str] = Field(default_factory=list)
+
+
+class OverrideTrace(BaseModel):
+    """Recorded on every run, including the ones where the two agree — which is what makes it evidence."""
+
+    proposed: Decision | None
+    final: Decision
+    overridden: bool
+    deciding_rules: list[int]
+
+
+class ExtractTrace(BaseModel):
+    """The one model call on the fact path, described by shape rather than by content."""
+
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    retries: int
+    document_kinds: dict[int, DocumentKind]
+    shell_signals: list[str]
+    target_refs: list[str]
+    supplementary_targets: int
+    dropped_targets: int
+    injection_suspected: bool
+
+
+class ScreenTrace(BaseModel):
+    """Everything screening found, whoever asked for the search; `propose.searches` records who. `Hit` carries no name."""
+
+    duration_ms: int
+    # The unconditional sweep only. What the loop added is counted in `propose`.
+    searches: int
+    hits: list[Hit]
+
+
+class EvaluateTrace(BaseModel):
+    """One pass of the rules engine; recorded once before the proposal can add hits and once after."""
+
+    phase: Literal["initial", "final"]
+    duration_ms: int
+    decision: Decision
+    confidence: float
+    fired_rules: list[int]
+
+
+class RunTrace(BaseModel):
+    """One run, with no field that can hold a name, a date of birth, an address or a quoted span. (D-012)"""
+
+    run_id: str
+    applicant_id: str
+    policy_version: str
+    brain_hash: str
+    watchlist_hash: str
+    model: str
+    duration_ms: int
+    usage: Usage
+    cost_usd: float
+    extract: ExtractTrace
+    screen: ScreenTrace
+    evaluate: list[EvaluateTrace]
+    propose: ProposeTrace
+    override: OverrideTrace
+    guardrails_passed: list[str]

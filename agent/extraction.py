@@ -100,7 +100,7 @@ def extract(packet: Applicant, brain: Brain, client: StructuredClient) -> Extrac
         extraction: Extraction = completion.parsed
         problems = validate_anchors(extraction, packet)
         if not problems:
-            return merge(packet, floor_of(packet), extraction, usage=completion.usage)
+            return merge(packet, floor_of(packet), extraction, usage=completion.usage, retries=attempt)
 
         if attempt == 0:
             messages = [
@@ -222,7 +222,7 @@ def _correction(problems: list[str]) -> str:
 
 
 def merge(
-    packet: Applicant, floor: Floor, extraction: Extraction, usage: Usage | None = None
+    packet: Applicant, floor: Floor, extraction: Extraction, usage: Usage | None = None, retries: int = 0
 ) -> ExtractionResult:
     """Union the floor with the model, then canonicalise so the same findings always spell the same result."""
     kinds: dict[int, str] = {index: "incorporation" for index in floor.incorporation_indices}
@@ -241,6 +241,7 @@ def merge(
         screening_targets=targets,
         injection_suspected=floor.contains_instructions or extraction.contains_instructions,
         dropped_targets=dropped,
+        retries=retries,
         usage=usage,
     )
 

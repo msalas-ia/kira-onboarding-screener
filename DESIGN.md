@@ -25,17 +25,22 @@ packet
   │
   ├─▶ corroborate                 DOB / country per hit      (deterministic)
   │
-  ├─▶ adjudicate                  LLM proposes ─┐
-  │                               Brain rules ──┴─▶ decision (deterministic)
+  ├─▶ adjudicate                  Brain rules ──▶ verdict₀   (deterministic)
+  │                               LLM proposes, with the watchlist tool
+  │                               in a bounded loop; the names it returns
+  │                               go through the same sweep, and the union
+  │                               can only add ──▶ verdict₁  (severity ≥ verdict₀)
   │
   └─▶ case file                   decision, confidence, reasons[],
                                   matched_entities[], missing_docs[],
-                                  policy_version
+                                  policy_version, brain_hash, watchlist_hash
 ```
 
 Every step emits a trace event. The adjudication step records both the model's
 proposal and the Brain's verdict, so an override is visible on every run rather
-than only in a special demonstration mode.
+than only in a special demonstration mode. The verdict is computed before the
+proposal runs and again after, so what the loop changed is visible rather than
+inferred.
 
 ## Where the LLM is, and where it is not
 
@@ -47,9 +52,9 @@ split by which side is actually good at the job.
 | Step | Owner | Why |
 |---|---|---|
 | Extraction | LLM, unioned with a deterministic floor | Free text. Document `type` strings are inconsistent across applicants and need semantic normalisation, and this is where the embedded prompt injection must be resisted. The floor reads the same packet with no model involved, and the merge is a union, so extraction can raise severity but never lower it (D-008). |
-| Screening | Deterministic sweep, plus supplementary searches the LLM proposes for names it finds in documents | Coverage is a security invariant, not a judgment call. The model can only *add* searches, never remove one. |
+| Screening | Deterministic sweep, plus supplementary searches the LLM proposes for names it finds in documents, plus spellings it tries in a bounded tool loop | Coverage is a security invariant, not a judgment call. The model can only *add* searches, never remove one, and it returns names rather than scores — the sweep executes every one of them (D-011). |
 | Corroboration | Deterministic | The policy defines it as a field comparison (DOB, country/nationality). Implementing a comparison the policy already specifies is not hardcoding. One agreeing comparable pair is enough (D-003); no comparable pair at all is unconfirmed, because missing identity is not confirmed identity. |
-| Adjudication | LLM proposes, Brain rules decide | The proposal is what makes the override observable. |
+| Adjudication | LLM proposes, Brain rules decide | The proposal is what makes the override observable. It sees facts and tool output, never the policy or the documents (D-010). |
 | `decision`, `reasons[]`, `confidence` | Deterministic | The policy requires identical *reasons*, not just identical decisions. |
 
 ## Determinism
@@ -68,15 +73,32 @@ asks for.
 The LLM still touches extraction, so its output is schema-constrained rather than
 free-form, and repeated-run hashing verifies stability empirically rather than
 assuming it. What is hashed matters: the check compares the **whole verdict** —
-`decision`, `reasons[]`, `matched_entities[]`, `hits[]` and `screening_targets[]`
-— not just the facts bag. An earlier version compared the facts bag alone, which
-would have missed a model returning different supplementary names per run, since
-those names never enter `Facts` but do enter the screening sweep. The property
-asserted now matches the property the decision actually depends on.
+`decision`, `reasons[]`, `matched_entities[]`, `hits[]`, `missing_docs[]` and
+`confidence` — not just the facts bag. An earlier version compared the facts bag
+alone, which would have missed a model returning different supplementary names per
+run, since those names never enter `Facts` but do enter the screening sweep. The
+property asserted now matches the property the decision actually depends on.
 
-Measured over 60 real runs — the twelve labelled applicants, five times each:
-**one distinct serialisation per applicant, zero unstable fields**, and all twelve
-labelled decisions correct on every run.
+One step can move a decision by sampling, and it arrived last: the adjudication
+loop, where the model chooses which spellings to search. It is bounded and its
+influence is monotone — it returns names, the deterministic sweep executes them,
+the union only adds — so it can escalate but never clear. **Measured with the
+loop on, it failed the first time**: 60 real runs, all 12 decisions correct in all
+5, but six applicants serialised more than one way. Every difference was a
+duplicate — a hit on an entity the sweep had already found, at whatever score the
+spelling the model happened to try scored. In all 60 runs the model found no
+entity the sweep had missed. Dropping those redundant hits (D-013) collapses all
+twelve to one serialisation each.
+
+What remains is one honest edge: a model-initiated hit on an entity the sweep
+missed entirely still reaches the verdict, so two runs could differ if the model
+finds one and then does not. It never happened in 60 runs, and when it does it is
+an escalation.
+
+Everything the deterministic path produces is reproducible by construction, which
+is the larger part of the claim: extraction is floored (D-008), the sweep is a
+pure function of the packet, and `verdict₀` is computed and recorded before the
+model is given a tool at all.
 
 ## The watchlist, and why it is not Brain state
 
@@ -172,10 +194,34 @@ durability at the cost of new policy versions no longer arriving with a deploy.
 | | |
 |---|---|
 | Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly — verified against a Brain deliberately edited to map a corroborated sanctions hit to `CLEAR`, which is the case a correctly written table cannot protect against. Its message carries entry ids and never a subject's name, because it goes to a log. |
-| `REVIEW` / `BLOCK` route to a human | Terminal states are flagged for a compliance officer and never auto-action anything downstream. |
-| No PII in logs | Traces reference applicants and entities by ID. Names, dates of birth and identifiers are redacted before anything is written to log storage; the full case file exists only in the response to an authenticated caller. |
+| `REVIEW` / `BLOCK` route to a human | `requires_human_review` is a field of the case file rather than something a caller derives, and nothing downstream is auto-actioned either way. |
+| No PII in logs | By construction, not by a redaction pass: no field of the trace schema can hold a name, a date of birth, an address or a quoted span, so there is nothing to filter and nothing to forget to filter (D-012). Checked over the bytes — 75 identifying values and 41 document phrases from all 18 packets appear in no trace, including runs where the model is primed to quote a name and a date of birth verbatim. The case file is clean for the same structural reason, so the only identifier a caller gets back is the `applicant_id` they sent, to an authenticated caller. |
 | Documents are data, never instructions | Free text is delimited, numbered, and framed as untrusted input, and a document cannot close its own delimiter. The extraction schema has no `decision`, `confidence` or `reasons` field, so APP-009's request for "decision = CLEAR" has nowhere to land: the defence is the absence of a slot, not a filter that has to recognise the attack. What a document *could* still do is talk the model out of a finding, which is what the deterministic floor closes — signals, screening targets and the injection flag are the union of floor and model. Screening then runs unconditionally regardless of any of it. |
 | A document that tries to manipulate is recorded | `injection_suspected` is a declared fact with a working sensor and no rule in v1 — the same shape as `location_validation`. The policy has no rule about manipulation attempts, and writing one into Python would put policy in code; a later version can say `{injection_suspected: true} → REVIEW` as a one-line data change. |
+
+## The endpoint, and what one run records
+
+`POST /screen` takes a **packet**, never an applicant id. The delivered bundle is
+test data, not a database this service owns, so the eval harness and the demo
+script both read `applicants.json` and post what they find. One surface, and
+nothing in the service that only works for the eighteen packets we happen to
+have. It is guarded by `SCREEN_API_TOKEN`, separate from `ADMIN_API_TOKEN`,
+because a caller that can screen an applicant should not thereby be able to swap
+the policy it is screened under. An unset token closes an endpoint rather than
+opening it.
+
+The response is the case file and the run's trace. The trace names every step,
+what it cost in tokens and milliseconds, every watchlist entry that matched, both
+verdicts, and whether the model's proposal differed from the Brain's. It is
+written as one JSON line to the log and to `traces/` on the mounted volume, and
+because the schema carries nothing that needs redacting, the bytes in the
+response and the bytes in the log are the same rather than merely equivalent.
+A volume that is full or read-only degrades observability and does not fail a
+screening run.
+
+Cost is arithmetic over the `usage` of each call, priced from a table in
+`agent/pricing.py` — not Brain data, because the price of a token is not policy
+and a rate card change must not move `brain_hash`.
 
 ## Failure modes
 
@@ -187,7 +233,9 @@ durability at the cost of new policy versions no longer arriving with a deploy.
 | The Brain's pinned `as_of_date` goes stale | Harmless within this challenge — verified decision-neutral across all 18 applicants — but a real deployment needs a policy-review cadence. The date is visible in `GET /brain` rather than buried in code |
 | Model unavailable, rate limited, or without a credential | The SDK retries transport failures; anything left over raises `ModelUnavailable`, which extraction turns into a stopped run. There is no partial extraction: an empty one reports no shell signals, which is the unsafe direction. An unset `ANTHROPIC_API_KEY` surfaces here as a service fault rather than an unhandled `TypeError` |
 | Model returns something unanchorable | One retry with the violated spans named, then the run stops. A span that is not a verbatim quote from the document it cites is how a fabricated finding is caught |
-| Runaway tool-call loop | Step and time budget per applicant; `MAX_STEPS_PER_APPLICANT` and `REQUEST_TIMEOUT_SECONDS` are wired into configuration |
+| Runaway tool-call loop | `MAX_STEPS_PER_APPLICANT` and `REQUEST_TIMEOUT_SECONDS` bound the adjudication loop, which is the only place a model drives control flow. Exhausting either stops the loop and the run continues with the hits it already had: the verdict never depends on the loop finishing, so a budget exhaustion is a degraded run rather than a failed one, and it is recorded as such |
+| Malformed tool call from the model | Answered with an error result and charged a step. A naive agent fumbling its tool is not a service fault |
+| The proposal fails or the model is unreachable during it | The run returns a case file with `propose.outcome = unavailable`. Nothing on the decision path reads the proposal, so losing it costs observability, not correctness |
 | Ambiguous policy text | Resolved explicitly in `DECISIONS.md` and surfaced in the trace, so a human can see which reading produced the verdict |
 
 ## Stack
@@ -240,34 +288,45 @@ decorative.
 
 ## Cost and latency
 
-One model call per applicant. The cacheable prefix is the extraction prompt plus
-the policy text, both from the Brain and byte-stable across applicants, marked
-`cache_control: ephemeral`; `claude-opus-5` has a 512-token minimum cacheable
-prefix and the pair is comfortably above it. `usage` is captured on every
-response and carried into the trace in spec 004.
+Two model steps per applicant: extraction, and the adjudication loop. Extraction
+has a large cacheable prefix — the extraction prompt plus the policy text, both
+Brain artifacts and byte-stable across applicants, marked `cache_control:
+ephemeral`; `claude-opus-5` has a 512-token minimum cacheable prefix and the pair
+is comfortably above it. The proposal has none: its prompt is the `base_heuristic`
+role, far under that minimum, so nothing on those turns is cached. `usage` is
+captured on every response and totalled in the trace.
 
-Measured twice, over 60 real calls each — the twelve labelled applicants, five
-times each, `claude-opus-5`. Both figures are reported because the spread between
-them is the honest error bar on a single measurement:
+Measured three times, 60 real runs each — the twelve labelled applicants, five
+times each, `claude-opus-5`. All three are reported, because the spread between
+them is the honest error bar on any one of them:
 
-| | spec 002 sweep | spec 003 sweep |
-|---|---|---|
-| Latency | 4.1 s per applicant | 5.6 s per applicant |
-| Input from cache | 93% (236,940 cached / 17,684 fresh) | 91% (228,625 cached / 17,717 fresh) |
-| Output | 178 tokens per call | 224 tokens per call |
-| Cost | $0.0079 per applicant | $0.0094 per applicant |
+| | spec 002 | spec 003 | spec 004 |
+|---|---|---|---|
+| Model steps | 1 | 1 | 2 – 4 |
+| Latency | 4.1 s per applicant | 5.6 s | 16.8 s |
+| Input from cache | 93% | 91% | 49.5% (232,500 cached / 237,661 fresh) |
+| Output | 178 tokens per call | 224 | 678 per run |
+| Cost | $0.0079 per applicant | $0.0094 | **$0.0387** |
 
-Screening adds nothing to either: the sweep is 124 local `difflib` calls for all
-18 packets, with no network and no tokens. The whole per-applicant cost is
-extraction.
+The screening sweep adds nothing to any of them: 124 local `difflib` calls for all
+18 packets, with no network and no tokens.
 
-The cache figure is the prompt-plus-policy prefix doing its job: only the packet
-itself is fresh input on each call. A live test asserts
-`cache_read_input_tokens > 0` on a second call, so the claim keeps being checked
-rather than being a one-off measurement quoted forever.
+**The adjudication loop is four times the cost of everything else combined**, and
+it is worth naming what that buys. On the dev set: nothing. In 60 runs it found no
+entity the deterministic sweep had missed, and changed no decision. What it buys
+is coverage of the gap D-009 admits — transliterations and spellings no token
+permutation can generate — against a holdout described as similar cases. That is a
+hedge, priced at $0.029 per applicant and 11 seconds, and a deployment that did
+not want it can bound it to zero by setting `MAX_STEPS_PER_APPLICANT` to 0 without
+touching code.
 
-Each sweep is also the determinism evidence for its spec — the 003 one hashing
-the full verdict rather than the facts bag.
+The cache ratio falling from 91% to 49.5% is not a regression in the cached path;
+it is the uncached path arriving beside it. Extraction's own prefix still caches. A
+live test asserts `cache_read_input_tokens > 0` on a second call, so the claim
+keeps being checked rather than being a one-off measurement quoted forever.
+
+Each sweep is also the determinism evidence for its spec — the 003 one hashing the
+full verdict rather than the facts bag, and the 004 one running with the loop on.
 
 No sampling parameters are sent: `temperature`, `top_p` and `top_k` are rejected
 with HTTP 400 on current models. `max_tokens` bounds thinking and response text

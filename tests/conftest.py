@@ -9,7 +9,7 @@ import yaml
 
 from agent.brain import load_version
 from agent.constants import POINTER_FILE, POLICY_FILE, RULES_FILE
-from agent.llm import Completion
+from agent.llm import Completion, ToolCall
 from agent.schemas import (
     Applicant,
     Brain,
@@ -18,6 +18,7 @@ from agent.schemas import (
     ExtractedName,
     Facts,
     Hit,
+    Proposal,
     ShellSignalFinding,
     Usage,
 )
@@ -110,20 +111,46 @@ class FakeClient:
         self.usage = usage or Usage()
         self.calls: list[dict] = []
 
-    def parse(self, *, system, messages, output_format):
-        self.calls.append({"system": system, "messages": messages, "output_format": output_format})
+    def parse(self, *, system, messages, output_format, tools=None):
+        self.calls.append({"system": system, "messages": messages, "output_format": output_format, "tools": tools})
         if not self.responses:
             raise AssertionError("the fake client was called more times than it was primed for")
         answer = self.responses.pop(0)
         if isinstance(answer, Exception):
             raise answer
+        if isinstance(answer, Completion):
+            return answer
         return Completion(parsed=answer, usage=self.usage)
+
+
+def searching(*names: str, usage: Usage | None = None) -> Completion:
+    """A model turn that asks for searches instead of answering."""
+    calls = tuple(
+        ToolCall(id=f"call-{index}", name="watchlist_search", arguments={"name": name})
+        for index, name in enumerate(names)
+    )
+    return Completion(parsed=None, usage=usage or Usage(), tool_calls=calls, content=[{"type": "tool_use"}])
+
+
+def fumbling(*arguments: dict) -> Completion:
+    """A model turn whose tool call is malformed — a missing name, an empty one, the wrong type."""
+    calls = tuple(
+        ToolCall(id=f"call-{index}", name="watchlist_search", arguments=argument)
+        for index, argument in enumerate(arguments)
+    )
+    return Completion(parsed=None, usage=Usage(), tool_calls=calls, content=[{"type": "tool_use"}])
 
 
 def extraction(**overrides) -> Extraction:
     """A model response that reports nothing, unless the test says otherwise."""
     defaults = dict(documents=[], shell_signals=[], names=[], contains_instructions=False)
     return Extraction(**{**defaults, **overrides})
+
+
+def proposal(**overrides) -> Proposal:
+    """The naive agent's answer, defaulting to the CLEAR its heuristic leans toward."""
+    defaults = dict(decision="CLEAR", confidence=0.8, cited_entries=[])
+    return Proposal(**{**defaults, **overrides})
 
 
 def classify(index: int, kind: str, span: str) -> DocumentClassification:
