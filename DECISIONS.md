@@ -449,3 +449,41 @@ packets measured by nothing.
 - The two gates fail independently, and a test drives exactly that case: a false
   clear on an unlabelled applicant fails the structural gate while the labelled
   rate stays at zero, which is the situation the holdout is made of.
+
+## D-016 — The eval gate runs the production configuration, and the pull request pays for it (2026-07-28)
+
+The brief requires CI to fail the build if the false-clear rate is above zero or
+the determinism check fails. Spec 004 measured the adjudication loop at four
+times the cost of everything else combined, so running the gate as production
+runs it is $1.53 per gated run — 36 real calls over the twelve labelled
+applicants, three times each.
+
+The gate keeps the loop on, the model the same, and the code path identical to
+the one production executes. What changes is *when* it fires rather than what it
+validates: the unit job runs on every push and costs nothing, and the eval job
+runs on non-draft pull requests, on pushes to `main`, and on manual dispatch.
+
+Rejected: `MAX_STEPS_PER_APPLICANT=0` in CI, at $0.11. It is not merely cheaper,
+and the argument for it is better than a cost argument — D-011's monotonicity
+makes a false-clear rate of zero measured with the loop **off** a proof that it
+is zero with the loop on, because `verdict₀` is the least severe verdict the
+system can reach. But determinism is precisely the property the loop threatens,
+and D-013 exists because that measurement failed the first time it was taken. A
+gate blind to the only risk it exists to catch is a different gate, not a cheaper
+one. Rejected: fixture-driven evals, which cost nothing and assert nothing about
+the model.
+
+- Two exit codes, because two bad days are not the same event: `1` is a gate
+  failing, which is a fact about the change; `2` is the suite being unable to
+  measure — an unreachable model, an unloadable Brain, a budget refusing to
+  overspend. There is no retry, because a gate that retries until it passes is a
+  gate that passes.
+- The distinction was not theoretical. The first real run met an out-of-credit
+  key and surfaced as a traceback rather than as exit 2, because `ExtractionFailed`
+  is the exception that actually arrives on that path and it was not caught.
+- `--max-cost-usd` is enforced rather than documented: the suite stops as soon as
+  the accumulated cost crosses the limit, so the overshoot is bounded by what was
+  already in flight.
+- The live tests are excluded from the unit job explicitly with `-m "not live"`,
+  rather than by the key being absent, because the eval job needs that key in the
+  same workflow.
