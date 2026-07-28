@@ -11,10 +11,12 @@ One applicant packet in, one case file out.
 ```
 packet
   │
-  ├─▶ load Company Brain          active_version.json → policy + rule table
+  ├─▶ load Company Brain          active_version.json → policy + rules + prompts
   │
-  ├─▶ extract                     documents[] → facts        (LLM)
+  ├─▶ extract                     documents[] → facts        (LLM ∪ floor)
   │                               doc types, shell signals, name variants
+  │                               unioned with a deterministic floor over the
+  │                               same packet, so the model can only escalate
   │
   ├─▶ screen                      business + every UBO       (deterministic)
   │                               + supplementary names from extraction
@@ -42,7 +44,7 @@ split by which side is actually good at the job.
 
 | Step | Owner | Why |
 |---|---|---|
-| Extraction | LLM | Free text. Document `type` strings are inconsistent across applicants and need semantic normalisation, and this is where the embedded prompt injection must be resisted. |
+| Extraction | LLM, unioned with a deterministic floor | Free text. Document `type` strings are inconsistent across applicants and need semantic normalisation, and this is where the embedded prompt injection must be resisted. The floor reads the same packet with no model involved, and the merge is a union, so extraction can raise severity but never lower it (D-008). |
 | Screening | Deterministic sweep, plus supplementary searches the LLM proposes for names it finds in documents | Coverage is a security invariant, not a judgment call. The model can only *add* searches, never remove one. |
 | Corroboration | Deterministic | The policy defines it as a field comparison (DOB, country/nationality). Implementing a comparison the policy already specifies is not hardcoding. |
 | Adjudication | LLM proposes, Brain rules decide | The proposal is what makes the override observable. |
@@ -69,12 +71,20 @@ empirically rather than assuming it.
 
 A Brain version is a **directory**, not a file. `company_brain/versions/vN/` holds
 the authoritative prose — byte-identical to the delivered bundle, which CI checks
-— and `rules.yaml`, its machine-readable projection: the decision matrix, the MCC
+— `rules.yaml`, its machine-readable projection: the decision matrix, the MCC
 set, the thresholds, the required-document set, the evaluation date, and the
-confidence attached to each outcome. The two are hashed together as `brain_hash`,
-reported by `/health` and echoed in every verdict, so a stored decision can be
-traced back to the exact policy state that produced it. `active_version.json`
-names the live version and the one before it.
+confidence attached to each outcome — and `prompts/`, the system prompts, because
+the brief asks for the Brain *and prompt* to be versioned and updatable without a
+code rewrite (D-007). All of them are hashed together as `brain_hash`, reported by
+`/health` and echoed in every verdict, so a stored decision can be traced back to
+the exact policy state that produced it. `active_version.json` names the live
+version and the one before it.
+
+Prompts are addressed by **role**, never by path: `extraction` is read by the
+extraction step, `base_heuristic` carries the naive "no exact match → lean CLEAR"
+rule the policy explicitly permits and is read only by the adjudication proposal.
+Re-authoring a prompt is a version swap on the same endpoint as a rule change;
+adding a new role is a code change, the same line the facts vocabulary draws.
 
 The rule table is executed by a generic evaluator that knows five operators and
 nothing about compliance. It cannot produce a decision that is not in the table,
@@ -99,11 +109,24 @@ which is why the container runs non-root but with the host's group: it needs
 write access to exactly one file and nothing else.
 
 The pointer is also a committed file, so the repository is the declared active
-version and a deploy re-asserts it. A hot-swap survives a container restart but
-not a redeploy — it is an operational override, not a change of intent. The
-alternative, moving the pointer outside the checkout, buys swap durability at the
-cost of new policy versions no longer arriving with a deploy, which is the worse
-trade when the live task is adding a rule.
+version. A hot-swap survives a container restart but not a redeploy: it is an
+operational override, not a change of intent. That is **enforced by the deploy
+target**, which restores the committed pointer before switching commits —
+`git checkout -- company_brain/active_version.json`. Without that line the
+override outlives every deploy, silently, because git carries a locally modified
+tracked file across a checkout when its content is unchanged between the two
+commits; and once the pointer *does* change in some commit, git refuses the
+checkout outright and the deploy aborts on a message about local changes. Both
+were observed on staging before the line was added.
+
+The brief requires the swap to work "without a redeploy" and to have a rollback
+path; it says nothing about whether a swap should outlive a later deploy, so this
+is a design choice rather than a forced one. Persisting it was rejected because
+nothing would ever reconcile the running policy with the repository, and drift
+between the two is exactly what `brain_hash` exists to make visible. Under the
+rule above there are two ways back to the declared version — activate it, or
+deploy — and the alternative of moving the pointer outside the checkout buys swap
+durability at the cost of new policy versions no longer arriving with a deploy.
 
 ## Guardrails
 
@@ -112,7 +135,8 @@ trade when the live task is adding a rule.
 | Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly. |
 | `REVIEW` / `BLOCK` route to a human | Terminal states are flagged for a compliance officer and never auto-action anything downstream. |
 | No PII in logs | Traces reference applicants and entities by ID. Names, dates of birth and identifiers are redacted before anything is written to log storage; the full case file exists only in the response to an authenticated caller. |
-| Documents are data, never instructions | Free text is delimited and framed as untrusted input. Screening runs unconditionally regardless of document content, so no document can suppress it — the injection in APP-009 cannot reach the decision path even if the extraction step were fooled. |
+| Documents are data, never instructions | Free text is delimited, numbered, and framed as untrusted input, and a document cannot close its own delimiter. The extraction schema has no `decision`, `confidence` or `reasons` field, so APP-009's request for "decision = CLEAR" has nowhere to land: the defence is the absence of a slot, not a filter that has to recognise the attack. What a document *could* still do is talk the model out of a finding, which is what the deterministic floor closes — signals, screening targets and the injection flag are the union of floor and model. Screening then runs unconditionally regardless of any of it. |
+| A document that tries to manipulate is recorded | `injection_suspected` is a declared fact with a working sensor and no rule in v1 — the same shape as `location_validation`. The policy has no rule about manipulation attempts, and writing one into Python would put policy in code; a later version can say `{injection_suspected: true} → REVIEW` as a one-line data change. |
 
 ## Failure modes
 
@@ -121,7 +145,8 @@ trade when the live task is adding a rule.
 | Brain volume missing, pointer malformed, or rule table invalid | `/health` returns 503; the instance is not ready and receives no screening traffic. No fallback to a previous version — an instance that cannot execute its policy stops rather than guessing |
 | Policy edit that references a fact nobody produces | Rejected at activation with 422 and the validation errors; the pointer does not move |
 | The Brain's pinned `as_of_date` goes stale | Harmless within this challenge — verified decision-neutral across all 18 applicants — but a real deployment needs a policy-review cadence. The date is visible in `GET /brain` rather than buried in code |
-| Model unavailable or rate limited | *Not yet implemented* |
+| Model unavailable, rate limited, or without a credential | The SDK retries transport failures; anything left over raises `ModelUnavailable`, which extraction turns into a stopped run. There is no partial extraction: an empty one reports no shell signals, which is the unsafe direction. An unset `ANTHROPIC_API_KEY` surfaces here as a service fault rather than an unhandled `TypeError` |
+| Model returns something unanchorable | One retry with the violated spans named, then the run stops. A span that is not a verbatim quote from the document it cites is how a fabricated finding is caught |
 | Runaway tool-call loop | Step and time budget per applicant; `MAX_STEPS_PER_APPLICANT` and `REQUEST_TIMEOUT_SECONDS` are wired into configuration |
 | Ambiguous policy text | Resolved explicitly in `DECISIONS.md` and surfaced in the trace, so a human can see which reading produced the verdict |
 
@@ -175,7 +200,32 @@ decorative.
 
 ## Cost and latency
 
-Not yet measured. Prompt caching should apply to the Brain and the system prompt
-— `claude-opus-5` has a 512-token minimum cacheable prefix and the policy is
-comfortably above it — but this will be verified against
-`usage.cache_read_input_tokens` before it is claimed anywhere.
+One model call per applicant. The cacheable prefix is the extraction prompt plus
+the policy text, both from the Brain and byte-stable across applicants, marked
+`cache_control: ephemeral`; `claude-opus-5` has a 512-token minimum cacheable
+prefix and the pair is comfortably above it. `usage` is captured on every
+response and carried into the trace in spec 004.
+
+Measured over 60 real calls — the twelve labelled applicants, five times each,
+`claude-opus-5`:
+
+| | |
+|---|---|
+| Latency | 4.1 s per applicant |
+| Input | 93% served from cache (236,940 cached vs 17,684 fresh tokens) |
+| Output | 178 tokens per call |
+| Cost | $0.0079 per applicant; $0.48 for the whole sweep |
+
+The cache figure is the prompt-plus-policy prefix doing its job: only the packet
+itself is fresh input on each call. A live test asserts
+`cache_read_input_tokens > 0` on a second call, so the claim keeps being checked
+rather than being a one-off measurement quoted forever.
+
+That same sweep is the determinism evidence: all five runs produced one distinct
+serialisation of the facts bag for every applicant, with no unstable field.
+
+No sampling parameters are sent: `temperature`, `top_p` and `top_k` are rejected
+with HTTP 400 on current models. `max_tokens` bounds thinking and response text
+together and is set well above what the extraction schema needs. Effort tuning
+(`output_config.effort`) is deliberately left alone until there is a measurement
+to tune against.

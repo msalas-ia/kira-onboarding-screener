@@ -147,3 +147,60 @@ differently depending on what the caller sent.
 - A test asserts that no module under `agent/` reads the wall clock at all.
 - The pinned date will need review in any real deployment. Recorded as a failure
   mode in `DESIGN.md` rather than left as a silent constant.
+
+## D-007 — The system prompts are Brain artifacts, not code (2026-07-27)
+
+The brief asks for "the Company Brain **and prompt**" to be versioned and
+updatable without a code rewrite, and gives one mechanism for doing that:
+`/brain/activate` over a mounted volume, with `brain_hash` as the identity of the
+policy state. A prompt living in Python satisfies the sentence's first half and
+leaves the second half outside the mechanism — the artifact would be versioned by
+git, which versions the repository, not the running container.
+
+Each version directory gains `prompts/`, and `rules.yaml` declares a role → path
+mapping. Roles are a closed vocabulary in `constants.py`, exactly like the facts
+vocabulary: an unknown role, a missing file, an empty one, or a path that escapes
+the version directory fails the load. Code asks for a prompt by role, never by
+path. The hash covers prose, table and every prompt, in sorted role order.
+
+The rejected alternative was prompts as module constants, versioned by git and
+shipped on deploy. It is simpler and needs no loader work, but it cannot be
+swapped on a running container, so the ablation the policy asks for — same
+applicant, base heuristic versus Brain — would be a code branch rather than two
+versioned artifacts, and a code branch is exactly what a reviewer should suspect
+of being staged.
+
+- v1's `brain_hash` changes the moment the prompts land. That is the mechanism
+  working: the prompt is now part of what "same Brain state" means.
+- Re-authoring a prompt is a version swap; adding a *role* is still a code
+  change, which is the same line the facts vocabulary draws.
+- `base_heuristic.md` now lives in the Brain, so spec 003's proposal step reads
+  the naive rule from policy data rather than from a constant.
+
+## D-008 — Extraction can raise severity, never lower it (2026-07-27)
+
+Two requirements meet on this step. The brief demands resistance to the injection
+in APP-009, and it demands a false-clear rate of zero. Extraction is the one place
+where a document's own text reaches the fact path, so anything the model is
+trusted to *remove* is a suppression path: a model persuaded to report no shell
+signals turns APP-008 from REVIEW into CLEAR, and nothing downstream can tell.
+
+The model's output is unioned with a deterministic floor computed from the same
+packet — document `type` strings, `ubos[].role`, and pattern matches over document
+content. Shell signals, screening targets and the injection flag are the union of
+both. The model can add; it cannot subtract.
+
+Trusting the schema-constrained model alone was rejected. It is simpler, and it is
+still what the document-classification path has to do, but it makes the zero
+false-clear target contingent on the model not being fooled by a document written
+specifically to fool it.
+
+- `has_incorporation_doc` is the stated exception: detecting a document that
+  exists is inherently de-escalating, so monotonicity cannot apply. It is guarded
+  differently — index-bound to documents the packet already contains, a closed
+  label set, and a span quoted verbatim from that document. The model can
+  mislabel one of N documents; it cannot invent one.
+- Extraction fails closed. There is no partial result, because an empty
+  extraction reports no shell signals, which is the unsafe direction.
+- The floor's patterns are a detection heuristic and live in Python. Rule 7's
+  threshold stays in the Brain, so no policy value moved into code.

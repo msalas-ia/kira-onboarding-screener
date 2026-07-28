@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 from agent.constants import HIT_FACTS, SHELL_SIGNAL_RECENT_FORMATION
-from agent.schemas import BrainSettings, Facts, Hit
+from agent.schemas import Applicant, BrainSettings, ExtractionResult, Facts, Hit
 
 
 def formation_age_days(incorporation_date: date | None, as_of: date) -> int | None:
@@ -39,6 +39,18 @@ def shell_signals(facts: Facts, settings: BrainSettings) -> list[str]:
     return signals
 
 
+def from_packet(packet: Applicant, extraction: ExtractionResult, settings: BrainSettings) -> Facts:
+    """Everything the evaluator reads except `hits`, which spec 003 fills; the packet is read here and nowhere else."""
+    return Facts(
+        mcc=packet.business.mcc,
+        has_incorporation_doc=extraction.has_incorporation_doc,
+        has_ubo_list=len(packet.ubos) > 0,
+        shell_signals=list(extraction.shell_signals),
+        formation_age_days=formation_age_days(packet.business.incorporation_date, settings.as_of_date),
+        injection_suspected=extraction.injection_suspected,
+    )
+
+
 def applicant_bag(facts: Facts, settings: BrainSettings) -> dict[str, Any]:
     """The applicant-scope facts, derived values included."""
     missing = missing_documents(facts, settings)
@@ -54,6 +66,7 @@ def applicant_bag(facts: Facts, settings: BrainSettings) -> dict[str, Any]:
         "formation_age_days": facts.formation_age_days,
         "formation_is_recent": formation_is_recent(facts, settings),
         "location_validation": facts.location_validation,
+        "injection_suspected": facts.injection_suspected,
     }
 
 
