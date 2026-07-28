@@ -90,10 +90,17 @@ spelling the model happened to try scored. In all 60 runs the model found no
 entity the sweep had missed. Dropping those redundant hits (D-013) collapses all
 twelve to one serialisation each.
 
+Re-measured after the fix, by the eval gate rather than by a one-off script: 36
+real runs, twelve applicants, **one serialisation each**, and the loop again
+found no entity the sweep had missed — 161 model-initiated searches, zero hits
+added, 20 redundant and dropped. That check now runs on every gated pull request
+instead of being quoted from the day it was taken.
+
 What remains is one honest edge: a model-initiated hit on an entity the sweep
 missed entirely still reaches the verdict, so two runs could differ if the model
-finds one and then does not. It never happened in 60 runs, and when it does it is
-an escalation.
+finds one and then does not. It never happened in 96 runs, and when it does it is
+an escalation — which is also why the correct response to it appearing as a red
+gate is to read `hits_added` in the trace, not to re-run until green.
 
 Everything the deterministic path produces is reproducible by construction, which
 is the larger part of the claim: extraction is floored (D-008), the sweep is a
@@ -193,7 +200,7 @@ durability at the cost of new policy versions no longer arriving with a deploy.
 
 | | |
 |---|---|
-| Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly — verified against a Brain deliberately edited to map a corroborated sanctions hit to `CLEAR`, which is the case a correctly written table cannot protect against. Its message carries entry ids and never a subject's name, because it goes to a log. |
+| Never auto-`CLEAR` a watchlist hit | An independent assertion after adjudication, not a property left to emerge from rule ordering. If a hit exists and the verdict is `CLEAR`, the run fails loudly — verified against a Brain deliberately edited to map a corroborated sanctions hit to `CLEAR`, which is the case a correctly written table cannot protect against. Its message carries entry ids and never a subject's name, because it goes to a log. **It is a net under one class of failure, not under a wrong policy**: run against `v0-naive`, it refuses 5 of that policy's 10 false clears and serves the other 5, because those carry no watchlist hit for it to notice. That limitation is measured and pinned by a test rather than described |
 | `REVIEW` / `BLOCK` route to a human | `requires_human_review` is a field of the case file rather than something a caller derives, and nothing downstream is auto-actioned either way. |
 | No PII in logs | By construction, not by a redaction pass: no field of the trace schema can hold a name, a date of birth, an address or a quoted span, so there is nothing to filter and nothing to forget to filter (D-012). Checked over the bytes — 75 identifying values and 41 document phrases from all 18 packets appear in no trace, including runs where the model is primed to quote a name and a date of birth verbatim. The case file is clean for the same structural reason, so the only identifier a caller gets back is the `applicant_id` they sent, to an authenticated caller. |
 | Documents are data, never instructions | Free text is delimited, numbered, and framed as untrusted input, and a document cannot close its own delimiter. The extraction schema has no `decision`, `confidence` or `reasons` field, so APP-009's request for "decision = CLEAR" has nowhere to land: the defence is the absence of a slot, not a filter that has to recognise the attack. What a document *could* still do is talk the model out of a finding, which is what the deterministic floor closes — signals, screening targets and the injection flag are the union of floor and model. Screening then runs unconditionally regardless of any of it. |
@@ -223,6 +230,53 @@ Cost is arithmetic over the `usage` of each call, priced from a table in
 `agent/pricing.py` — not Brain data, because the price of a token is not policy
 and a rate card change must not move `brain_hash`.
 
+## Evals, and what the gate actually gates
+
+`uv run python evals/run_evals.py` screens the twelve labelled applicants three
+times each through the configuration production runs — the adjudication loop on,
+the same model, the same code path — and writes `evals/results.md`. Seven metrics
+gate; the rest are reported because a threshold on them would be a number
+invented for a gate rather than derived from the brief.
+
+The headline metric is defined twice, and the definition that gates is the one
+that needs no labels. `false_clear_rate` is scoped to the seven labelled
+applicants whose reason cites a watchlist entry, which is the brief's wording;
+`false_clear_by_construction` is any run where `hits[]` is non-empty and the
+decision is `CLEAR`, over every run performed. The second means the same thing on
+the dev set, on the six unlabelled packets and on an applicant nobody has scored,
+which is what the grading holdout is (D-015). The hit-bearing denominator is
+derived from the labels rather than listed in code.
+
+The two adversarial cases are **named checks**, not folded into an accuracy
+average: an aggregate that stays at 11/12 while APP-009 flips to CLEAR is the
+exact failure this system exists to prevent, and an average would report it as a
+good day.
+
+**The override is measured rather than narrated, in two independent ways.**
+`v0-naive` is a Brain version whose rule table *is* the naive heuristic — an
+exact sanctions match blocks, everything else clears — with settings and prompts
+byte-identical to v1, so the table is the only variable and the comparison
+refuses to run if that stops being true. The two policies disagree on 10 of the
+18 packets and on 7 of the 12 labelled, every disagreement in the CLEAR
+direction, and APP-011 is CLEAR under one and REVIEW under the other with no
+model anywhere on the path (D-014). Separately, the live proposal is overruled on
+8 of 36 real runs: on APP-005 and APP-006 the model proposes CLEAR where the
+Brain says REVIEW, and on APP-011 it proposes BLOCK and the Brain moderates it to
+REVIEW. The first pair is the interesting one — those are the same two applicants
+whose false clears the runtime guardrail cannot see, reached independently by a
+policy comparison and by a live model.
+
+That refines what spec 004 recorded. Eleven runs then produced zero overrides;
+thirty-six runs now produce eight. The model is not reliably naive and it is not
+reliably strict — which is the argument for the rule table being the load-bearing
+mechanism, stated more strongly than the earlier measurement could.
+
+The gate runs in CI on non-draft pull requests, on pushes to `main`, and on
+manual dispatch — the unit suite runs on every push and costs nothing. Two exit
+codes keep two different bad days apart: `1` is a gate failing, `2` is the suite
+being unable to measure. There is no retry, because a gate that retries until it
+passes is a gate that passes (D-016).
+
 ## Failure modes
 
 | | Handling |
@@ -237,6 +291,7 @@ and a rate card change must not move `brain_hash`.
 | Malformed tool call from the model | Answered with an error result and charged a step. A naive agent fumbling its tool is not a service fault |
 | The proposal fails or the model is unreachable during it | The run returns a case file with `propose.outcome = unavailable`. Nothing on the decision path reads the proposal, so losing it costs observability, not correctness |
 | Ambiguous policy text | Resolved explicitly in `DECISIONS.md` and surfaced in the trace, so a human can see which reading produced the verdict |
+| The eval gate cannot reach the model | Exit code `2` and a distinct message, never `1`. A merge blocked because the API was overloaded, out of credit or slow is not a merge blocked because the change regressed, and reporting both with the same number teaches people to re-run until green. The suite also stops on its own cost limit rather than trusting an estimate |
 
 ## Stack
 
@@ -300,13 +355,20 @@ Measured three times, 60 real runs each — the twelve labelled applicants, five
 times each, `claude-opus-5`. All three are reported, because the spread between
 them is the honest error bar on any one of them:
 
-| | spec 002 | spec 003 | spec 004 |
-|---|---|---|---|
-| Model steps | 1 | 1 | 2 – 4 |
-| Latency | 4.1 s per applicant | 5.6 s | 16.8 s |
-| Input from cache | 93% | 91% | 49.5% (232,500 cached / 237,661 fresh) |
-| Output | 178 tokens per call | 224 | 678 per run |
-| Cost | $0.0079 per applicant | $0.0094 | **$0.0387** |
+| | spec 002 | spec 003 | spec 004 | spec 005 |
+|---|---|---|---|---|
+| Runs | 60 | 60 | 60 | 36 |
+| Model steps | 1 | 1 | 2 – 4 | 2 – 4 |
+| Latency | 4.1 s per applicant | 5.6 s | 16.8 s | 15.3 s |
+| Input from cache | 93% | 91% | 49.5% (232,500 cached / 237,661 fresh) | 46.1% (127,875 / 149,752) |
+| Output | 178 tokens per call | 224 | 678 per run | 714 |
+| Cost | $0.0079 per applicant | $0.0094 | **$0.0387** | **$0.0425** |
+
+The 005 column is the eval gate itself rather than a separate sweep, which is the
+point of it: the number CI reproduces on every gated run is the number quoted
+here. It sits 10% above 004's, and the honest reading of that gap is that it is
+inside the spread between two measurements of the same configuration, not a
+regression anybody can name.
 
 The screening sweep adds nothing to any of them: 124 local `difflib` calls for all
 18 packets, with no network and no tokens.

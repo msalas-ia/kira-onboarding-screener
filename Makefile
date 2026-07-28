@@ -9,13 +9,14 @@ STAGING_COMPOSE := docker-compose.staging.yml
 PROD_COMPOSE    := docker-compose.prod.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help lock sync test up down deploy-staging deploy-prod
+.PHONY: help lock sync test evals up down deploy-staging deploy-prod
 
 help:
 	@echo "Local"
 	@echo "  make lock                     regenerate uv.lock"
 	@echo "  make sync                     install the locked environment"
 	@echo "  make test                     run the unit suite (no network)"
+	@echo "  make evals                    run the eval gate against the real API"
 	@echo "  make up                       bring the staging stack up locally"
 	@echo "  make down                     tear it down"
 	@echo ""
@@ -64,3 +65,7 @@ deploy-prod:
 	  GIT_COMMIT=$$(git rev-parse --short HEAD) HOST_GID=$$(id -g) \
 	    docker compose -f $(PROD_COMPOSE) up -d --build; \
 	  echo "production now at $$(git rev-parse --short HEAD)"'
+
+# The gate, as CI runs it. Spends real money, bounded by --max-cost-usd.
+evals:
+	uv run python evals/run_evals.py --runs 3 --concurrency 4 --max-cost-usd 2.50

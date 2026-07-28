@@ -64,7 +64,26 @@ Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is installed by uv itself
 make sync    # install the locked environment
 make test    # unit suite, no network, no API key
 make lock    # regenerate uv.lock after changing dependencies
+make evals   # the eval gate against the real API (~$1.53, ~4 min)
 ```
+
+## Evals
+
+```bash
+uv run python evals/run_evals.py            # 12 labelled applicants x 3 runs
+uv run python evals/run_evals.py --url https://kira.adaptateia.com   # against a deployment
+```
+
+It screens through the configuration production runs — the adjudication loop on,
+the same model, the same code path — and gates on seven metrics: the false-clear
+rate in both of its defensible definitions, decision accuracy, the two
+adversarial cases by name, determinism across the runs, and the override
+ablation. Exit `1` is a gate failing; exit `2` is the suite being unable to
+measure, which is not the same event. `--max-cost-usd` stops it rather than
+trusting an estimate.
+
+The last committed results are in [`evals/results.md`](evals/results.md), stamped
+with the commit and `brain_hash` that produced them.
 
 ## Deploy
 
@@ -85,8 +104,10 @@ pointed at unmerged work by accident.
 api/                   FastAPI surface
 company_brain/         versioned policy, mounted at runtime (not in the image)
   versions/v1/         the active policy
+  versions/v0-naive/   the naive baseline, kept so the override can be measured
   active_version.json  pointer — swapping this swaps the policy, no redeploy
 assets/                the delivered bundle, never modified
+evals/                 the eval suite, the gate, and the committed results summary
 specs/                 one spec per component, with acceptance criteria
 tests/                 unit suite
 ```
@@ -95,6 +116,7 @@ tests/                 unit suite
 
 - `DESIGN.md` — architecture, the Brain override mechanism, determinism approach
 - `DECISIONS.md` — judgment calls forced by ambiguity in the brief
+- `evals/results.md` — the last gated run: every metric, the ablation, cost and latency
 
 ## Secrets
 
