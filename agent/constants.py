@@ -55,3 +55,7 @@ EXTRACTED_SHELL_SIGNALS = (SHELL_SIGNAL_NOMINEE_DIRECTOR, SHELL_SIGNAL_MASS_REGI
 SHELL_SIGNALS = frozenset(EXTRACTED_SHELL_SIGNALS) | {SHELL_SIGNAL_RECENT_FORMATION}
 
 MAX_SUPPLEMENTARY_NAMES = 10
+
+# Recall is bought with more calls to the delivered tool, never with a new matcher. (D-009)
+WATCHLIST_TOOL = "assets/tools/watchlist_search.py"
+MAX_PERMUTED_TOKENS = 3

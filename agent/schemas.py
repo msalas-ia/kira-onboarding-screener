@@ -195,6 +195,15 @@ class Hit(BaseModel):
     name_score: float
     corroborated: bool
     corroboration_basis: Literal["dob", "country", "none"] = "none"
+    # Which spelling scored: a hit found only through a reordering has to be able to say so.
+    name_variant: Literal["as_given", "reordered"] = "as_given"
+
+
+class ScreeningResult(BaseModel):
+    """The sweep's output: the hits it found, and how much searching that took."""
+
+    hits: list[Hit] = Field(default_factory=list)
+    searches: int = 0
 
 
 class Facts(BaseModel):

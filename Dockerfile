@@ -28,6 +28,12 @@ COPY --from=builder --chown=kira:kira /app/.venv /app/.venv
 COPY --chown=kira:kira agent/ ./agent/
 COPY --chown=kira:kira api/ ./api/
 
+# The watchlist is a data feed, not policy: it is baked in rather than mounted,
+# and /health reports its hash so a decision is traceable to the list state too.
+# The tool resolves ../data/watchlist.json relative to itself, so both come.
+COPY --chown=kira:kira assets/tools/watchlist_search.py ./assets/tools/
+COPY --chown=kira:kira assets/data/watchlist.json ./assets/data/
+
 # company_brain/ is deliberately NOT copied. It is mounted at runtime so a
 # policy version can be swapped without rebuilding or restarting the image.
 
