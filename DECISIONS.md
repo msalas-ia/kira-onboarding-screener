@@ -242,3 +242,147 @@ construction, on the metric the brief requires to be zero.
 - Permutations recover reordering only — not transliteration, diacritics or
   initials. A real deployment needs a name-matching library, and saying so is
   better than pretending this generalises.
+
+## D-010 — The proposal sees facts and hits, never the policy and never the documents (2026-07-28)
+
+The brief wants the agent's base instructions visibly overruled by the Company
+Brain, and it wants APP-009's injection to have nowhere to land. The adjudication
+proposal is where those two meet, because it is the only step in the pipeline
+whose output schema has a `decision` field — the slot D-008 deliberately removed
+from extraction.
+
+It is given the facts bag, the watchlist tool's own output, and the names being
+screened. Not the policy text, because a step that can read the rule table is not
+carrying the naive instruction any more; and not `documents[].content`, because
+that is where the injection lives and this is the one place it would find
+somewhere to write. The injection reaches the step as a boolean, which is all a
+decision could legitimately need from it.
+
+`corroborated` and `corroboration_basis` are withheld for the same reason as the
+policy text: corroboration is a conclusion the policy defines (D-003), so showing
+it leaks the rule table into the step built to reason without one. A first
+implementation showed them; removing them changed no proposed decision.
+
+Rejected: feeding it the documents so it can propose spellings read from the free
+text. Extraction already reports names, under a floor, with a schema that has no
+decision field — the same capability without the exposure.
+
+- The measured result is that the model does not follow the naive heuristic:
+  eleven runs, zero overrides, including APP-011 where it is handed a 0.966
+  non-exact sanctions match and proposes REVIEW anyway.
+- That is reported rather than tuned around. It means the override demonstration
+  the brief asks for rests on the deterministic ablation — one applicant, two
+  Brain versions — and not on a model needing to be overruled.
+- `override` is still written on every run, agreement included. A field that only
+  appears on disagreement is a demonstration mode, not an instrument.
+
+## D-011 — Model-initiated searches add names, never scores (2026-07-28)
+
+Giving the model `watchlist_search` as a real tool is the only place in this
+system where a sampling step can move a decision: a search it initiates can add a
+hit, and a hit changes the verdict. That is in tension with what spec 003
+achieved, where determinism stopped being a measurement and became a property of
+the call graph.
+
+The model returns a **string**. It never supplies a score, an `entry_id` or a
+corroboration verdict. The orchestrator executes the search through the same
+`sweep` spec 003 ships — same permutations, same union, same
+`brain.settings.min_name_score` — so the model's entire influence is which
+spellings get searched. The verdict is computed twice: `verdict₀` before the loop
+and `verdict₁` after. Because the union only adds hits and the engine takes the
+most severe finding among those that fired, severity is monotone: **the loop
+cannot introduce a false clear.** It can only escalate.
+
+A hit found this way is attributed to a single synthetic subject, `proposed`, and
+can never corroborate — a spelling the model tried is not an identity the packet
+declared, so there is nothing to compare it against. For a sanctions entry that
+is Rule 2, REVIEW, which is the same treatment spec 003 already gives
+document-sourced names. Attributing it to one subject rather than one per call is
+what makes the same two searches in either order the same verdict.
+
+The honest job this has is the gap D-009 admits: permutations recover reordering
+and nothing else. Measured, the model reaches `EU-2001` at 1.0 from APP-011's
+`Ivanka Sokolov` — a spelling no permutation of those tokens can generate.
+
+Rejected: making a model-found match a declared fact with no rule in v1, the
+`location_validation` pattern. It keeps determinism structural, but a genuine
+sanctions match found by the model would then not block, which is a false clear
+by construction. Safety wins over determinism when they disagree, and the
+policy's own posture is "when in doubt, REVIEW".
+
+- The budget is real: `max_steps_per_applicant` and `request_timeout_seconds` now
+  guard something. Exhausting either stops the loop and the run continues — the
+  verdict never depends on the loop finishing, so a timeout is a degraded run
+  rather than a failed one.
+- A malformed tool call is answered with an error result and costs a step. A
+  naive agent fumbling its tool is not a service fault.
+- What this costs is measured in `DESIGN.md`, not asserted: the criterion is five
+  runs over the twelve labelled applicants producing one verdict serialisation
+  each, with the loop on.
+
+## D-012 — PII stays out of the trace by construction, not by a redaction pass (2026-07-28)
+
+The brief requires no PII in logs. A redaction filter is a list of fields
+somebody has to remember to update, and its failure mode is silent: the day a new
+field carries a name, the filter does not know and nothing fails.
+
+The trace schema has no field that can hold a name, a date of birth, an address
+or a quoted span. `Hit` already referenced subjects by index rather than by name;
+extraction is described by counts, kinds and refs; and a model-initiated search
+is recorded as an ordinal, a token count and its outcome. The defence is the
+absence of a slot, which is the same shape as extraction's missing `decision`
+field.
+
+One consequence is worth having on purpose: there is a single serialisation, so
+the trace returned to a caller and the trace written to the log are the same
+bytes rather than merely equivalent. `/screen` composes its response body from
+the emitted line so this stays true, and a test asserts it.
+
+Rejected: hashing the searched name. A full-name space is small enough that a
+hash is a dictionary lookup away from the plaintext — a redaction that reads like
+one without being one.
+
+- Checked over the bytes rather than over a field list: 75 identifying values and
+  41 document phrases drawn from all 18 packets, none of which appear in any
+  trace, including runs where the model is primed to quote a UBO name and a date
+  of birth verbatim.
+- Watchlist `entry_id`s are recorded freely. They identify a listed entity, which
+  is public list data, not the applicant.
+- The case file was already clean for the same reason — `reasons[]` is templated
+  from rule evidence and `matched_entities[]` carries refs — so the only
+  identifier a caller gets back is the `applicant_id` they sent.
+
+## D-013 — A model-initiated hit on an entity already found is dropped (2026-07-28)
+
+D-011 allowed the tool loop to feed `hits[]` on a measured condition: five runs
+over the twelve labelled applicants, one verdict serialisation each. The
+measurement failed. Sixty real runs produced the correct decision every time, but
+**six of the twelve applicants serialised more than one way**, APP-009 four ways.
+
+What varied was not which entities were found. Every difference was a *duplicate*
+— a model-initiated hit on an entity the deterministic sweep had already matched,
+under the synthetic `proposed` subject, carrying whatever score the spelling the
+model happened to try that run scored. On APP-009 `EU-2001` appeared at 0.875,
+0.968, 1.0, and on one run not at all, always beside `ubo[0]`'s exact 1.0. Across
+all sixty runs the model found **no entity the sweep had missed**.
+
+So the rule is: a model-initiated hit whose `entry_id` is already in `hits[]` is
+dropped before the second evaluation. It cites nothing new, it fires no rule that
+has not already fired on that entity, and it was the entire measured instability.
+Replayed against the recorded runs, this collapses all twelve applicants to one
+serialisation each.
+
+Rejected: D-011's own stated fallback, demoting every model-initiated hit to
+trace-only. It restores determinism completely, and it was the right thing to
+pre-commit to before knowing what the instability would look like — but the
+measurement showed the instability was entirely redundancy, so demoting
+everything would have paid for determinism with the one case the loop exists for.
+
+- The residual is stated rather than glossed. A hit on an entity the sweep missed
+  entirely still reaches the verdict, so two runs could differ if the model finds
+  one and then does not. That never occurred in sixty runs, and when it does it
+  is an escalation — the direction that cannot produce a false clear.
+- `hits_added` and `hits_redundant` are separate counters in the trace, because
+  only the first can move a verdict and only the first can make two runs differ.
+- Nothing is hidden by the drop: every entity every search returned is already
+  recorded in `propose.searches`.

@@ -9,7 +9,7 @@ from agent.facts import from_packet
 from agent.guardrails import assert_no_auto_clear
 from agent.llm import StructuredClient
 from agent.pricing import cost_of, total_usage
-from agent.proposal import ProposalUnavailable, propose
+from agent.proposal import Adjudication, ProposalUnavailable, propose
 from agent.rules import evaluate
 from agent.schemas import (
     Applicant,
@@ -33,6 +33,10 @@ log = logging.getLogger(__name__)
 
 NEVER_AUTO_CLEAR = "never_auto_clear"
 
+# Taken as an argument rather than read from api.config, so screen() stays a
+# function of its inputs.
+DEFAULT_MAX_STEPS = 12
+
 
 def screen(
     packet: Applicant,
@@ -41,9 +45,12 @@ def screen(
     *,
     run_id: str,
     model: str,
+    max_steps: int = DEFAULT_MAX_STEPS,
+    timeout_seconds: float | None = None,
 ) -> tuple[CaseFile, RunTrace]:
     """One packet in, one case file and one trace out; `run_id` is supplied so nothing here needs a random source."""
     started = time.perf_counter()
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds else None
 
     mark = time.perf_counter()
     extraction = extract(packet, brain, client)
@@ -59,7 +66,24 @@ def screen(
     verdict = evaluate(brain, facts)
     evaluations = [_evaluate_trace("initial", verdict, _since(mark))]
 
-    propose_trace = _propose(brain, facts, extraction.screening_targets, client, model)
+    adjudication, propose_trace = _propose(
+        brain, facts, extraction.screening_targets, client, model, max_steps, deadline
+    )
+
+    # A hit on an entity the sweep already found cites nothing new, and was the
+    # whole of the measured instability. (D-013)
+    already = {found.entry_id for found in facts.hits}
+    novel = [found for found in adjudication.hits if found.entry_id not in already]
+    propose_trace = propose_trace.model_copy(
+        update={"hits_added": len(novel), "hits_redundant": len(adjudication.hits) - len(novel)}
+    )
+
+    if novel:
+        facts.hits = sorted([*facts.hits, *novel], key=lambda found: (found.subject_ref, found.entry_id))
+        mark = time.perf_counter()
+        verdict = evaluate(brain, facts)
+        evaluations.append(_evaluate_trace("final", verdict, _since(mark)))
+        screen_trace = screen_trace.model_copy(update={"hits": facts.hits})
 
     assert_no_auto_clear(facts, verdict)
 
@@ -96,23 +120,31 @@ def _propose(
     targets: list[ScreeningTarget],
     client: StructuredClient,
     model: str,
-) -> ProposeTrace:
-    """The naive proposal, recorded beside the verdict. A run that cannot get one is degraded, never wrong."""
+    max_steps: int,
+    deadline: float | None,
+) -> tuple[Adjudication, ProposeTrace]:
+    """The naive proposal and its searching. A run that cannot get one is degraded, never wrong."""
     mark = time.perf_counter()
     try:
-        proposal, usage = propose(brain, facts, targets, client)
+        adjudication = propose(brain, facts, targets, client, max_steps=max_steps, deadline=deadline)
     except ProposalUnavailable as exc:
         log.warning("no proposal recorded: %s", exc)
-        return ProposeTrace(outcome="unavailable", duration_ms=_since(mark), usage=Usage(), cost_usd=0.0)
+        return Adjudication(None), ProposeTrace(
+            outcome="unavailable", duration_ms=_since(mark), usage=Usage(), cost_usd=0.0
+        )
 
-    return ProposeTrace(
-        outcome="proposed",
+    proposal = adjudication.proposal
+    return adjudication, ProposeTrace(
+        outcome="proposed" if proposal else "no_answer",
         duration_ms=_since(mark),
-        usage=usage,
-        cost_usd=cost_of(usage, model),
-        decision=proposal.decision,
-        confidence=proposal.confidence,
-        cited_entries=proposal.cited_entries,
+        usage=adjudication.usage,
+        cost_usd=cost_of(adjudication.usage, model),
+        steps=adjudication.steps,
+        budget=adjudication.budget,
+        searches=list(adjudication.searches),
+        decision=proposal.decision if proposal else None,
+        confidence=proposal.confidence if proposal else None,
+        cited_entries=proposal.cited_entries if proposal else [],
     )
 
 

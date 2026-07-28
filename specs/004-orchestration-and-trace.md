@@ -291,20 +291,21 @@ than discovery:
 agent/
 ├── orchestrate.py   # the composition of §5, and the only place the steps are ordered
 ├── proposal.py      # base_heuristic + watchlist_search as a real tool, bounded
-├── trace.py         # the events of §7, PII-free by construction
+├── trace.py         # emitting the events of §7 to both sinks, identically
 ├── pricing.py       # per-model rates; cost is arithmetic over usage
-├── schemas.py       # + CaseFile, Proposal, ToolCallRecord, RunTrace
-└── constants.py     # + the trace event names
+├── llm.py           # + tools on the protocol, and a turn that asks for one
+└── schemas.py       # + CaseFile, Proposal, SearchRecord, RunTrace and its events
 api/
+├── auth.py          # the two bearer guards, so neither route reimplements one
 ├── screen_routes.py # POST /screen, bearer auth, the 503 condition shared with /health
 └── main.py          # + the router
 tests/
-├── test_orchestrate.py       # the 12 labels through the orchestrator, verdict₀ = verdict₁ with a silent proposer
+├── test_orchestrate.py       # the 12 labels through the orchestrator, the case file contract, the guardrail
+├── test_proposal.py          # what the naive agent is shown and what it is not, and the override field
 ├── test_proposal_loop.py     # budget exhaustion, malformed tool args, monotonicity, order independence
 ├── test_trace_has_no_pii.py  # every string in every trace against every name/DOB/address in all 18 packets
-├── test_case_file.py         # the contract's fields, requires_human_review, the hashes
 ├── test_screen_endpoint.py   # 200, 401, 422, and 503 when the Brain is unloadable
-└── test_screen_live.py       # marked live: APP-011 end to end against the real model
+└── test_screen_live.py       # marked live: APP-011 and APP-009 end to end against the real model
 ```
 
 The dependency line extends without bending: `constants ← schemas ← {llm,
@@ -352,9 +353,28 @@ should be allowed to fake.
     trace records that it ran.
 12. **Determinism with the loop on**: five real runs over the 12 labelled
     applicants produce one distinct serialisation of `(decision, reasons[],
-    matched_entities[], hits[], screening_targets[])` per applicant — the same
-    property 003 measured, with the loop now inside it. If it fails, D-011's
-    fallback applies and the failure is reported rather than tuned away.
+    matched_entities[], hits[], missing_docs[], confidence)` per applicant — the
+    same property 003 measured, with the loop now inside it.
+
+    **Measured, and it failed on the first attempt.** 60 real runs: all 12
+    decisions correct in all 5, but **6 of 12 applicants produced more than one
+    serialisation** — APP-009 four of them. Every difference was a *duplicate*:
+    a model-initiated hit on an entity the deterministic sweep had already
+    found, under the synthetic `proposed` subject, at whatever score the
+    spelling the model happened to try scored (`EU-2001` at 0.875, 0.968 or 1.0
+    beside `ubo[0]`'s 1.0). Across all 60 runs the model found **no entity the
+    sweep had missed**.
+
+    The fix follows from what the failure was: a model-initiated hit whose
+    `entry_id` is already in `hits[]` is dropped. It cites nothing new and fires
+    no rule that has not fired. Replayed over the recorded runs, that collapses
+    all 12 applicants to exactly one serialisation each (D-013).
+
+    What remains is stated rather than glossed: a model-initiated hit on an
+    entity the sweep missed entirely *does* still reach the verdict, and two
+    runs could differ if the model finds one and then does not. That never
+    happened in 60 runs, and when it does happen it is an escalation — the
+    direction that cannot produce a false clear.
 13. `uv run pytest -q` passes with `ANTHROPIC_API_KEY` unset and no network, with
     nothing skipped that this spec added except the one live test.
 

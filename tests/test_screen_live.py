@@ -39,6 +39,15 @@ def test_the_adversarial_packet_blocks_end_to_end(packets, brain, client):
     assert [entity.entry_id for entity in case_file.matched_entities] == ["EU-2001"]
 
 
+def test_the_model_searches_spellings_the_permutations_cannot_reach(packets, brain, client):
+    """The gap D-009 admits, closed by the loop: from `Ivanka Sokolov` the model reaches the sanctioned spelling."""
+    _, trace = screen(packets["APP-011"], brain, client, run_id="live-loop", model=MODEL, max_steps=12)
+
+    assert trace.propose.searches, "the model never called the tool"
+    assert trace.propose.budget == "within"
+    assert all(record.accepted for record in trace.propose.searches)
+
+
 def test_a_real_run_leaks_no_pii_into_its_trace(packets, brain, client):
     """The offline test primes the model; this one lets it write whatever it likes and checks the same property."""
     packet = packets["APP-009"]

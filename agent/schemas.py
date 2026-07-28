@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 Decision = Literal["BLOCK", "REVIEW", "CLEAR"]
 HitType = Literal["sanctions", "pep", "adverse_media"]
 Scope = Literal["applicant", "each_hit"]
-Subject = Literal["business", "ubo"]
+# `proposed` is a spelling the model tried, not a party the packet declared, so
+# it has no identity to corroborate against. (D-011)
+Subject = Literal["business", "ubo", "proposed"]
 
 # Mirrors constants.py; tests/test_extraction_schema.py pins the two together.
 DocumentKind = Literal["incorporation", "ubo_declaration", "proof_of_address", "website_extract", "other"]
@@ -160,7 +162,7 @@ class ScreeningTarget(BaseModel):
     subject_ref: str
     dob: date | None = None
     country: str | None = None
-    source: Literal["packet", "document"] = "packet"
+    source: Literal["packet", "document", "proposed"] = "packet"
 
 
 class Usage(BaseModel):
@@ -256,7 +258,6 @@ class CaseFile(BaseModel):
     brain_hash: str
     watchlist_hash: str
     run_id: str
-    # Stated rather than left for a caller to infer: REVIEW and BLOCK route to a human.
     requires_human_review: bool
 
 
@@ -268,13 +269,35 @@ class Proposal(BaseModel):
     cited_entries: list[str] = Field(description="Watchlist entry ids you relied on, or an empty list.")
 
 
+class SearchOutcome(BaseModel):
+    """What a model-initiated search returned. Entry ids are watchlist data, not applicant data."""
+
+    entry_id: str
+    name_score: float
+
+
+class SearchRecord(BaseModel):
+    """One search the model asked for, by shape and by result — never the string it searched for. (D-012)"""
+
+    ordinal: int
+    tokens: int
+    accepted: bool
+    entries: list[SearchOutcome] = Field(default_factory=list)
+
+
 class ProposeTrace(BaseModel):
     """What the proposal cost and what it concluded — never its reasoning in its own words, which would carry names."""
 
-    outcome: Literal["proposed", "unavailable"]
+    outcome: Literal["proposed", "unavailable", "no_answer"]
     duration_ms: int
     usage: Usage
     cost_usd: float
+    steps: int = 0
+    budget: Literal["within", "steps_exhausted", "time_exhausted"] = "within"
+    searches: list[SearchRecord] = Field(default_factory=list)
+    # Split because only the novel ones reach the verdict. (D-013)
+    hits_added: int = 0
+    hits_redundant: int = 0
     decision: Decision | None = None
     confidence: float | None = None
     cited_entries: list[str] = Field(default_factory=list)
@@ -305,9 +328,10 @@ class ExtractTrace(BaseModel):
 
 
 class ScreenTrace(BaseModel):
-    """The deterministic sweep. `Hit` already references subjects by index, so it can be quoted whole."""
+    """Everything screening found, whoever asked for the search; `propose.searches` records who. `Hit` carries no name."""
 
     duration_ms: int
+    # The unconditional sweep only. What the loop added is counted in `propose`.
     searches: int
     hits: list[Hit]
 

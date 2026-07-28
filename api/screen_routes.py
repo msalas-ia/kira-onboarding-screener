@@ -43,7 +43,15 @@ def screen_applicant(packet: Applicant, caller: str = Depends(require_screener))
 
     run_id = uuid4().hex[:12]
     try:
-        case_file, trace = screen(packet, brain, model_client(), run_id=run_id, model=settings.anthropic_model)
+        case_file, trace = screen(
+            packet,
+            brain,
+            model_client(),
+            run_id=run_id,
+            model=settings.anthropic_model,
+            max_steps=settings.max_steps_per_applicant,
+            timeout_seconds=float(settings.request_timeout_seconds),
+        )
     except ExtractionFailed as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except GuardrailViolated as exc:
@@ -60,7 +68,7 @@ def screen_applicant(packet: Applicant, caller: str = Depends(require_screener))
         caller,
     )
 
-    # Composed from the emitted line rather than re-serialised, so the trace in the
-    # response is the same bytes as the trace in the log rather than merely equal.
+    # Composed from the emitted line rather than re-serialised, so the response
+    # carries the same bytes as the log rather than an equivalent object.
     body = f'{{"case_file":{case_file.model_dump_json()},"trace":{line}}}'
     return Response(content=body, media_type="application/json")

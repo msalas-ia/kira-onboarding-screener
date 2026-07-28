@@ -17,9 +17,8 @@ class Rates:
     cache_write: float
 
 
-# Not Brain data: the price of a token is not policy, and a rate card change must
-# not move brain_hash. These reproduce the 60-call sweep recorded in DESIGN.md
-# ($0.5626) to within a hundredth of a cent, which is how they were confirmed.
+# Not Brain data: a rate card change must not move brain_hash. Confirmed against
+# the 60-call sweep in DESIGN.md, which they reproduce to $0.0001.
 RATES: dict[str, Rates] = {
     "claude-opus-5": Rates(input=5.0, output=25.0, cache_read=0.50, cache_write=6.25),
 }
