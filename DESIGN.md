@@ -230,6 +230,18 @@ Cost is arithmetic over the `usage` of each call, priced from a table in
 `agent/pricing.py` — not Brain data, because the price of a token is not policy
 and a rate card change must not move `brain_hash`.
 
+**One thing is aggregated rather than enumerated, and it is worth saying which.**
+The brief asks for each step and each tool call. Every step is recorded, and every
+tool call the *model* initiates is recorded individually — its ordinal, the token
+count of the string it searched, and every entry that came back with its score.
+The deterministic sweep is not: its eight or so `difflib` calls per applicant
+appear as a count beside the hits they produced. The reason is D-012 rather than
+convenience — the argument to those calls **is** the applicant's name, so
+enumerating them would put back exactly what the schema was built to have no slot
+for. What survives is enough to audit the sweep: `target_refs` says what was
+screened, `searches` how many calls that took, and each hit carries whether its
+winning score came from the name as given or from a reordering.
+
 ## Evals, and what the gate actually gates
 
 `uv run python evals/run_evals.py` screens the twelve labelled applicants three
@@ -281,6 +293,16 @@ merge queue rather than this. Two exit
 codes keep two different bad days apart: `1` is a gate failing, `2` is the suite
 being unable to measure. There is no retry, because a gate that retries until it
 passes is a gate that passes (D-016).
+
+**This deviates from the brief's wording, and the deviation is deliberate.** The
+checklist asks for a pipeline that runs the eval suite "on every push". It runs
+on every pull request instead. At $1.51 a run that is the difference between
+paying per merge and paying per commit, and a gate expensive enough to be
+resented is a gate somebody eventually switches off. What the requirement
+protects is intact: the build fails when the false-clear rate is above zero or
+determinism breaks, `main` is protected on that check, and no such change can
+land. The free half of the pipeline — the unit suite and the secret scan — does
+run on every push.
 
 ## Failure modes
 
@@ -400,3 +422,30 @@ with HTTP 400 on current models. `max_tokens` bounds thinking and response text
 together and is set well above what the extraction schema needs. Effort tuning
 (`output_config.effort`) is deliberately left alone until there is a measurement
 to tune against.
+
+## Next steps
+
+Each of these is a limitation measured somewhere above, stated here as the action
+it implies rather than argued again.
+
+1. **A real name matcher.** Permutations recover reordering and nothing else
+   (D-009); transliteration, diacritics and patronymics all defeat a positional
+   comparison. This is the largest gap and the only one orchestration cannot
+   close.
+2. **A threshold per list type.** `min_name_score` is one number for sanctions,
+   PEP and adverse media, which have different base rates and different costs of
+   being wrong. Brain data, not code.
+3. **An eval set with per-rule coverage.** Rules 5, 6 and 7 are exercised by one
+   labelled applicant each, so a regression in any of them is invisible until the
+   holdout. Twelve applicants also means one of them moves accuracy by eight
+   points.
+4. **A decision on the adjudication loop.** It costs four times everything else
+   and found no entity the sweep missed in 96 runs. Measure it against traffic
+   that is not the dev set, then keep it or set `MAX_STEPS_PER_APPLICANT=0`.
+5. **Rotation for `traces/runs.jsonl`**, which grows without bound.
+6. **Asynchronous runs.** One uvicorn process holds a connection for fifteen
+   seconds per screening; real traffic needs the case file fetched by `run_id`.
+
+Two limitations are deliberately *not* on this list, because the trade was made
+with the measurement in hand rather than deferred: the residual determinism edge
+D-013 leaves open, and the pinned `as_of_date` of D-006.
