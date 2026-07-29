@@ -32,25 +32,45 @@ running in both environments; `specs/` records what each one settled and
 | Production | https://kira.adaptateia.com/health |
 | Staging | https://kira-staging.adaptateia.com/health |
 
+`/health` and the read-only Brain endpoints are open. `POST /screen` and the
+Brain-mutating endpoints need a bearer token, which is **in the submission email**
+rather than here — a token in a public repository is a token that has to be
+rotated. `Run it` below brings the same thing up locally with tokens you generate
+yourself, so nothing about the walkthrough depends on having ours.
+
 ## Run it
 
-Requires Docker. No Python toolchain needed on the host.
+Requires Docker, and `jq` to read the responses. No Python toolchain on the host.
 
 ```bash
 git clone git@github.com:msalas-ia/kira-onboarding-screener.git
 cd kira-onboarding-screener
 
 cp .env.example .env.staging
-# edit .env.staging and set ANTHROPIC_API_KEY
+openssl rand -hex 16   # run twice, for the two tokens below
+
+# Now fill in three values in .env.staging. An unset token closes an endpoint
+# rather than opening it, so /screen returns 503 until both tokens are set:
+#   ANTHROPIC_API_KEY   your key
+#   SCREEN_API_TOKEN    guards POST /screen
+#   ADMIN_API_TOKEN     guards the Brain endpoints
 
 make up
 ```
 
-Then:
+Then, in another terminal:
 
 ```bash
 curl -s http://127.0.0.1:8081/health
 # {"status":"ok","app_env":"staging","brain_version":"v1", ...}
+
+# and the thing this exists to do — screen an applicant
+SCREEN_API_TOKEN=$(grep '^SCREEN_API_TOKEN=' .env.staging | cut -d= -f2-)
+PACKET=$(jq -c '.[] | select(.applicant_id=="APP-011")' assets/data/applicants.json)
+
+curl -s -X POST http://127.0.0.1:8081/screen \
+  -H "Authorization: Bearer $SCREEN_API_TOKEN" -H 'Content-Type: application/json' \
+  -d "$PACKET" | jq '.case_file'
 ```
 
 `make down` tears it back down.
