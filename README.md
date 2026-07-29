@@ -108,8 +108,9 @@ instead of a prompt, with settings and prompts byte-identical to `v1`. The rule
 table is the only variable, so a difference in decisions measures the rule table.
 
 ```bash
-curl -s -X POST $HOST/brain/activate -H "Authorization: Bearer $ADMIN_API_TOKEN" \
-  -H 'Content-Type: application/json' -d '{"version":"v0-naive"}'
+curl -s -X POST https://kira.adaptateia.com/brain/activate \
+  -H "Authorization: Bearer $ADMIN_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"version":"v0-naive"}'
 # {"previous":"v1","active":"v0-naive","brain_hash":"sha256:4862d25…"}
 ```
 
@@ -156,8 +157,8 @@ with the commit and `brain_hash` that produced them.
 Pushing a branch deploys nothing — deployment is explicit.
 
 ```bash
-make deploy-staging REF=spec/001-brain-rules-engine   # any ref
-make deploy-prod                                       # main only
+make deploy-staging REF=spec/006-my-branch   # any ref: usually the branch under review
+make deploy-prod                            # main only
 ```
 
 Staging accepts any ref so a branch can be verified before it is merged.
@@ -174,6 +175,7 @@ company_brain/         versioned policy, mounted at runtime (not in the image)
   active_version.json  pointer — swapping this swaps the policy, no redeploy
 assets/                the delivered bundle, never modified
 evals/                 the eval suite, the gate, and the committed results summary
+observability/samples/ three real runs, exactly as /screen returned them
 specs/                 one spec per component, with acceptance criteria
 tests/                 unit suite
 ```
@@ -183,6 +185,7 @@ tests/                 unit suite
 - `DESIGN.md` — architecture, the Brain override mechanism, determinism approach
 - `DECISIONS.md` — judgment calls forced by ambiguity in the brief
 - `evals/results.md` — the last gated run: every metric, the ablation, cost and latency
+- `observability/samples/` — three real runs, case file and trace: APP-001 clears on Rule 8, APP-011 reviews on Rule 2, APP-009 blocks on Rule 1 with the injection flagged
 
 ## Secrets
 

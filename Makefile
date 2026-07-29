@@ -43,7 +43,7 @@ down:
 # Staging takes any ref — that is what replaces a long-lived staging branch.
 deploy-staging:
 ifndef REF
-	$(error REF is required, e.g. make deploy-staging REF=spec/001-brain-rules-engine)
+	$(error REF is required, e.g. make deploy-staging REF=spec/006-my-branch)
 endif
 	ssh $(REMOTE_HOST) 'set -e; \
 	  cd $(STAGING_DIR); \
