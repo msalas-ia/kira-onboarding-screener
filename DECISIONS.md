@@ -461,7 +461,9 @@ applicants, three times each.
 The gate keeps the loop on, the model the same, and the code path identical to
 the one production executes. What changes is *when* it fires rather than what it
 validates: the unit job runs on every push and costs nothing, and the eval job
-runs on non-draft pull requests, on pushes to `main`, and on manual dispatch.
+runs on non-draft pull requests and on manual dispatch — not on the merge, because
+`main` is protected on that check and `strict` requires a pull request to be up to
+date before merging, so the tree that lands is the tree the gate already measured.
 
 Rejected: `MAX_STEPS_PER_APPLICANT=0` in CI, at $0.11. It is not merely cheaper,
 and the argument for it is better than a cost argument — D-011's monotonicity
