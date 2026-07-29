@@ -271,8 +271,13 @@ thirty-six runs now produce eight. The model is not reliably naive and it is not
 reliably strict — which is the argument for the rule table being the load-bearing
 mechanism, stated more strongly than the earlier measurement could.
 
-The gate runs in CI on non-draft pull requests, on pushes to `main`, and on
-manual dispatch — the unit suite runs on every push and costs nothing. Two exit
+The gate runs in CI on non-draft pull requests and on manual dispatch; the unit
+suite runs on every push and costs nothing. It deliberately does **not** run on
+the merge: `main` is protected on that check and requires a branch to be up to
+date before merging, so the tree that lands is the tree the gate already
+measured, and re-running it would pay twice for one answer. That reasoning holds
+because one pull request is open at a time — a busier repository would want a
+merge queue rather than this. Two exit
 codes keep two different bad days apart: `1` is a gate failing, `2` is the suite
 being unable to measure. There is no retry, because a gate that retries until it
 passes is a gate that passes (D-016).

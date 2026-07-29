@@ -264,7 +264,7 @@ Two jobs, split by what they cost.
 | job | fires on | contents | cost |
 |---|---|---|---|
 | `checks` | every push, every PR | secret scan, the bundle drift diff, `uv run pytest -q -m "not live"` | $0 |
-| `evals` | non-draft pull requests, pushes to `main`, manual dispatch | `uv run python evals/run_evals.py --runs 3` | ~$1.39 |
+| `evals` | non-draft pull requests, manual dispatch | `uv run python evals/run_evals.py --runs 3` | ~$1.39 |
 
 **The gate runs the production configuration.** The adjudication loop stays on,
 the model is `claude-opus-5`, and the code path is the one production executes.
@@ -364,7 +364,7 @@ comparison over two loaded Brains.
     name, date of birth and address in all 18 packets, the same way the trace is
     checked.
 12. CI is two jobs. `checks` runs on every push and costs nothing; `evals` runs on
-    non-draft pull requests, pushes to `main`, and manual dispatch. The unit step
+    non-draft pull requests and on manual dispatch, not on the merge. The unit step
     passes `-m "not live"` explicitly.
 13. `uv run pytest -q` still passes with `ANTHROPIC_API_KEY` unset and no network,
     with nothing skipped that this spec added — everything 005 adds to `tests/` is
