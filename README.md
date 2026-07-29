@@ -12,14 +12,18 @@ decision every run.
 
 ## Status
 
-The scaffold is in place: container stack, both environments, CI, and a
-readiness endpoint. The screening pipeline itself is being built spec by spec —
-see `specs/` for what is planned and `DESIGN.md` for how it fits together.
+Complete against everything the brief names. Specs 000 to 005 are merged and
+running in both environments; `specs/` records what each one settled and
+`DESIGN.md` how it fits together.
 
 | | |
 |---|---|
-| Implemented | `/health`, container image, staging + production stacks, CI |
-| Next | Brain loader and rules engine (spec 001) |
+| Decisions | 12 of 12 labelled applicants correct, for the labelled rule. False-clear rate **zero**, in both of its defensible definitions |
+| Determinism | 12 applicants, one verdict serialisation each across 36 runs with the tool loop on — reproduced on a clean CI runner, not only locally |
+| Override | demonstrated as policy against policy: `v0-naive` and `v1` disagree on 10 of 18 packets, and APP-011 is CLEAR under one and REVIEW under the other with no model on the path |
+| Injection | APP-009 blocks with the injection flagged, every run. The extraction schema has no `decision` field for it to land in |
+| Tests | 308 offline (no key, no network) and 9 live |
+| Cost | $0.0425 and 15.3 s per applicant, measured by the gate CI reproduces |
 
 ## Live
 
@@ -55,6 +59,68 @@ curl -s http://127.0.0.1:8081/health
 cannot be read, because an instance that cannot load its policy must not receive
 screening traffic. It never calls the Anthropic API, so it works with no
 credentials present.
+
+## Endpoints
+
+```
+GET  /health            readiness; 503 if the Brain or the watchlist cannot be read
+GET  /brain             the active version, what a rollback returns to, and brain_hash
+GET  /brain/versions    every version on the volume, valid or not
+POST /brain/activate    hot-swap the active policy          (ADMIN_API_TOKEN)
+POST /screen            a packet in, the case file and the run's trace out  (SCREEN_API_TOKEN)
+```
+
+The two tokens are separate on purpose: a caller that can screen an applicant
+should not thereby be able to swap the policy it is screened under.
+
+### Screen an applicant
+
+`/screen` takes a **packet**, never an id — the delivered bundle is test data,
+not a database this service owns.
+
+```bash
+PACKET=$(jq -c '.[] | select(.applicant_id=="APP-011")' assets/data/applicants.json)
+
+curl -s -X POST https://kira.adaptateia.com/screen \
+  -H "Authorization: Bearer $SCREEN_API_TOKEN" -H 'Content-Type: application/json' \
+  -d "$PACKET" | jq '.case_file | {decision, reasons, matched_entities, policy_version}'
+```
+
+```json
+{
+  "decision": "REVIEW",
+  "reasons": ["Rule 2 — sanctions hit, unconfirmed — never CLEAR (ubo[0]): entry_id=EU-2001, name_score=0.966, corroboration_basis=none"],
+  "matched_entities": [{"entry_id": "EU-2001", "hit_type": "sanctions", "subject_ref": "ubo[0]", "name_score": 0.966, "corroborated": false}],
+  "policy_version": "v1"
+}
+```
+
+The response also carries the run's full trace — every step, its tokens, latency
+and cost, both verdicts, and whether the model's proposal was overruled. It
+contains no name, date of birth or quoted span, because no field of the schema
+can hold one.
+
+### The Brain overruling the base instruction
+
+`company_brain/versions/v0-naive/` is the naive heuristic the policy explicitly
+permits — *no exact sanctions match, lean CLEAR* — written as a rule table
+instead of a prompt, with settings and prompts byte-identical to `v1`. The rule
+table is the only variable, so a difference in decisions measures the rule table.
+
+```bash
+curl -s -X POST $HOST/brain/activate -H "Authorization: Bearer $ADMIN_API_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"version":"v0-naive"}'
+# {"previous":"v1","active":"v0-naive","brain_hash":"sha256:4862d25…"}
+```
+
+APP-005 then reaches `CLEAR` where `v1` reaches `REVIEW`, on the same packet and
+the same code, with no restart and no redeploy. Rollback is the same call with
+the version the API just reported. APP-011 under the naive table is refused
+outright — `assert_no_auto_clear` will not serve a `CLEAR` over a watchlist hit,
+whatever the policy says.
+
+The full 18-packet comparison is in [`evals/results.md`](evals/results.md), and
+it is checked by the offline test suite on every run.
 
 ## Develop
 
